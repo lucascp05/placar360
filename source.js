@@ -1,6 +1,13 @@
 ﻿import { readFile, writeFile, rename } from 'node:fs/promises';
 
-export const priority = [71,72,73,75,475,476,477,478,479,13,11,2,39,140,78,135,61,1,4,9,960];
+export const priority = [71,72,73,75,475,476,477,478,479,13,11,2,3,39,140,78,79,135,61,1,4,9,960];
+export const openLeagues = [
+  {id:78,shortcut:'bl1',name:'Bundesliga',country:'Alemanha'},
+  {id:79,shortcut:'bl2',name:'2. Bundesliga',country:'Alemanha'},
+  {id:39,shortcut:'pl',name:'Premier League',country:'Inglaterra'},
+  {id:2,shortcut:'ucl',name:'Champions League',country:'Europa'},
+  {id:3,shortcut:'uel2026',name:'Europa League',country:'Europa',season:2026}
+];
 const liveCodes = new Set(['1H','HT','2H','ET','BT','P','LIVE','INT']);
 const endedCodes = new Set(['FT','AET','PEN']);
 const labels = { HT:'Intervalo', BT:'Intervalo da prorrogação', FT:'Encerramento', AET:'Encerramento', PEN:'Encerramento após pênaltis' };
@@ -22,13 +29,11 @@ function addEvents(match, list) {
   match.events = [...unique.values()].sort((a,b) => (a.minute ?? 999)-(b.minute ?? 999) || (a.extra ?? 0)-(b.extra ?? 0));
   return match;
 }
-const marker = (detail, minute) => ({kind:'Fase',detail,minute,extra:null,team:null,player:'',assist:''});
-function markers(status) {
-  const list = [];
-  if (liveCodes.has(status) || endedCodes.has(status)) list.push(marker('Início',0));
-  if (['HT','2H','ET','BT','P',...endedCodes].includes(status)) list.push(marker('Intervalo',45));
-  if (endedCodes.has(status)) list.push(marker(labels[status],null));
-  return list;
+const marker = (detail, minute = null, extra = null) => ({kind:'Fase',detail,minute,extra,team:null,player:'',assist:''});
+function markers(status, clock) {
+  if (status==='1H') return [marker('Início',0)];
+  if (status==='HT' || status==='BT') return [marker(labels[status],asNumber(clock.elapsed),asNumber(clock.extra))];
+  return endedCodes.has(status) ? [marker(labels[status])] : [];
 }
 export function normalizeApi(raw) {
   const {fixture,league,teams,goals,score,events} = raw ?? {};
@@ -44,13 +49,13 @@ export function normalizeApi(raw) {
     clock:labels[status] ?? (liveCodes.has(status) ? minuteOf(fixture.status.elapsed,fixture.status.extra) : ''),
     statusLabel:({PST:'Adiado',CANC:'Cancelado',SUSP:'Suspenso',ABD:'Abandonado',AWD:'Resultado atribuído',WO:'W.O.',INT:'Interrompido',TBD:'Horário a definir',P:'Pênaltis'})[status] ?? '',
     detailed:Array.isArray(events),
-  }, [...markers(status),...(Array.isArray(events) ? events : []).filter(e=>['Goal','Card','subst','Var'].includes(e?.type)).map(e=>({
+  }, [...markers(status,fixture.status),...(Array.isArray(events) ? events : []).filter(e=>['Goal','Card','subst','Var'].includes(e?.type)).map(e=>({
     kind:({Goal:'Gol',Card:'Cartão',subst:'Substituição',Var:'VAR'})[e.type],detail:asText(e.detail),
     minute:asNumber(e.time?.elapsed),extra:asNumber(e.time?.extra),team:e.team?.id ?? null,
     player:asText(e.player?.name),assist:asText(e.assist?.name)
   }))]);
 }
-export function normalizeOpen(raw) {
+export function normalizeOpen(raw, league = openLeagues[0]) {
   if (!Number.isInteger(raw?.matchID) || !validDate(raw.matchDateTimeUTC) || !raw.team1?.teamName || !raw.team2?.teamName) return null;
   const team = entry => ({id:entry.teamId,name:entry.teamName,logo:logo(entry.teamIconUrl)});
   const final = raw.matchIsFinished === true;
@@ -70,22 +75,79 @@ export function normalizeOpen(raw) {
   });
   return addEvents({
     id:'open-'+raw.matchID,date:dateOf(raw.matchDateTimeUTC),kickoff:raw.matchDateTimeUTC,round:raw.group?.groupOrderID,
-    league:{id:78,name:'Bundesliga',country:'Alemanha',logo:'',season:Number(raw.leagueSeason)||null},home:team(raw.team1),away:team(raw.team2),score,
+    league:{id:league.id,name:league.name,country:league.country,logo:'',season:Number(raw.leagueSeason)||null},home:team(raw.team1),away:team(raw.team2),score,
     penalties:[null,null],status:final ? 'final' : active ? 'live' : 'scheduled',clock:'',statusLabel:'',
     sourceUpdated:validDate(raw.lastUpdateDateTime) && /(?:Z|[+-]\d\d:\d\d)$/.test(raw.lastUpdateDateTime) ? raw.lastUpdateDateTime : null,detailed:false,
-  }, [...markers(final ? 'FT' : active ? 'LIVE' : ''),...events]);
+  }, final ? [...events,marker('Encerramento')] : events);
+}
+
+const openSeason = day => {
+  const [year,month] = day.split('-').map(Number);
+  return month >= 7 ? year : year-1;
+};
+
+function createOpenFeed(league, request) {
+  const cacheName = league.id===78 ? 'bundesliga-cache' : 'openliga-'+league.shortcut;
+  const file = new URL('./'+cacheName+'.json',import.meta.url);
+  const temporary = new URL('./'+cacheName+'.tmp',import.meta.url);
+  const normalize = rows => rows.map(row=>normalizeOpen(row,league)).filter(Boolean);
+  const seasons = new Map();
+  let previousPoll = 0;
+  return {
+    seasons,
+    async initialize() {
+      try {
+        const rows = JSON.parse(await readFile(file,'utf8'));
+        const season = Number(rows[0]?.leagueSeason);
+        if (!season || (league.season && season!==league.season)) return [];
+        const matches = normalize(rows);
+        seasons.set(season,{matches,updated:0});
+        return matches;
+      } catch { return []; }
+    },
+    async collect(day, known) {
+      const now = Date.now();
+      const season = openSeason(day);
+      if (league.season && league.season!==season) return [];
+      const cached = seasons.get(season);
+      const current = day === dateOf(now);
+      const round = current && known.find(m=>m.league.id===league.id && m.status!=='final'
+        && (m.status==='live'||Math.abs(now-Date.parse(m.kickoff))<3*3600000))?.round;
+      if (now-previousPoll<30000) {
+        if (cached) return cached.matches;
+        throw Error('Aguardando intervalo de consulta');
+      }
+      const recent = cached && now-cached.updated<6*3600000;
+      if (cached && (!current || (recent && !round))) return cached.matches;
+      previousPoll = now;
+      const partial = recent && round;
+      const url = 'https://api.openligadb.de/getmatchdata/'+league.shortcut+'/'+season+(partial ? '/'+round : '');
+      const rows = await (await request(url)).json();
+      if (!Array.isArray(rows)) throw Error('Agenda da fonte inválida');
+      const matches = normalize(rows);
+      if (rows.length && !matches.length) throw Error('Agenda da fonte inválida');
+      if (partial) {
+        cached.matches = [...new Map([...cached.matches,...matches].map(m=>[m.id,m])).values()];
+        return cached.matches;
+      }
+      if (seasons.size>=5 && !seasons.has(season)) seasons.delete(seasons.keys().next().value);
+      seasons.set(season,{matches,updated:now});
+      if (current && rows.length) {
+        try { await writeFile(temporary,JSON.stringify(rows)); await rename(temporary,file); } catch {}
+      }
+      return matches;
+    }
+  };
 }
 
 export function createSource(key, limit) {
-  const file = new URL('./bundesliga-cache.json',import.meta.url);
-  let openData = [], currentSeason, previousPoll = 0, seasonFetched = 0;
   let used = 0, quotaDay, remaining = limit, latestApiCall = 0;
-  const seasons = new Map();
   async function request(url, headers) {
     const response = await fetch(url,{headers,signal:AbortSignal.timeout(8500)});
     if (!response.ok) throw Error('Fonte respondeu HTTP '+response.status);
     return response;
   }
+  const openFeeds = key ? [] : openLeagues.map(league=>createOpenFeed(league,request));
   async function apiFixtures(query) {
     const nowDay = new Date().toISOString().slice(0,10);
     if (quotaDay !== nowDay) { quotaDay = nowDay; used = 0; remaining = limit; }
@@ -104,19 +166,15 @@ export function createSource(key, limit) {
   return {
     name:key ? 'API-Football' : 'OpenLigaDB',
     async initialize() {
-      if (key) return [];
-      try {
-        const rows = JSON.parse(await readFile(file,'utf8'));
-        openData = rows.map(normalizeOpen).filter(Boolean);
-        currentSeason = rows[0]?.leagueSeason;
-        return openData;
-      } catch { return []; }
+      return (await Promise.all(openFeeds.map(feed=>feed.initialize()))).flat();
     },
     async calendar(day, end, league, season) {
       if (!key) {
-        const rows = seasons.get(season) ?? openData;
-        if (!rows.length) throw Error('Aguardando a agenda da fonte');
-        return {matches:rows, cached:!seasonFetched || rows!==openData};
+        const dates = new Set([openSeason(day),openSeason(end)]);
+        const schedules = openFeeds.flatMap((feed,index)=>[...feed.seasons].filter(([year])=>league
+          ? openLeagues[index].id===league && year===season : dates.has(year)).map(([,data])=>data));
+        if (!schedules.length) throw Error('Aguardando a agenda da fonte');
+        return {matches:schedules.flatMap(data=>data.matches), cached:schedules.every(data=>!data.updated)};
       }
       const scope = league ? 'league='+league+'&season='+season : 'from='+day+'&to='+end;
       const cached = calendars.get(scope);
@@ -136,50 +194,35 @@ export function createSource(key, limit) {
     },
     async collect(day, known) {
       if (key) {
-        const active = day === dateOf(Date.now()) && known.some(m=>m.status==='live');
+        const now = Date.now();
+        const active = known.filter(m=>m.status==='live');
+        const nearKickoff = known.filter(m=>m.status==='scheduled' && Math.abs(now-Date.parse(m.kickoff))<15*60000);
         const details = known.filter(m=>m.status==='final' && !m.detailed).slice(0,20);
         const dateQuery = 'date='+day;
-        const liveQuery = 'live='+priority.join('-');
-        const detailQuery = details.length ? 'ids='+details.map(m=>m.id.slice(4)).join('-') : '';
-        const query = active && used%5 !== 0 ? liveQuery : detailQuery || dateQuery;
+        const focused = [...active,...nearKickoff,...details];
+        const canFocus = focused.length && focused.length<=20 && used%3!==0;
+        const query = canFocus ? 'ids='+focused.map(m=>m.id.slice(4)).join('-') : dateQuery;
         const old = new Map(known.map(m=>[m.id,m]));
-        const updated = (await apiFixtures(query)).filter(m=>m.date===day).map(m=>{
+        const fetched = await apiFixtures(query);
+        const updated = fetched.filter(m=>m.date===day).map(m=>{
           const previous = old.get(m.id);
-          return m.detailed || !previous?.detailed ? m : addEvents({...m,detailed:true},[...previous.events.filter(e=>e.kind!=='Fase'),...m.events]);
+          if (!previous) return m;
+          const phases = previous.events.filter(e=>e.kind==='Fase' && !e.detail.startsWith('Encerramento'));
+          const events = m.detailed ? [] : previous.events.filter(e=>e.kind!=='Fase');
+          return addEvents({...m,detailed:m.detailed||previous.detailed},[...phases,...events,...m.events]);
         });
-        if (query === liveQuery || query === detailQuery) return [...new Map([...known,...updated].map(m=>[m.id,m])).values()];
+        if (canFocus) {
+          const movedIds = new Set(fetched.filter(m=>m.date!==day).map(m=>m.id));
+          return [...new Map([...known.filter(m=>!movedIds.has(m.id)),...updated].map(m=>[m.id,m])).values()];
+        }
         return updated;
       }
-      const [year,month] = day.split('-').map(Number);
-      const season = month >= 7 ? year : year-1;
-      if (Date.now()-previousPoll < 30000) { if (season===currentSeason) return openData; if (seasons.has(season)) return seasons.get(season); throw Error('Aguardando intervalo de consulta'); }
-      const base = 'https://api.openligadb.de/';
-      const isCurrent = day === dateOf(Date.now());
-      if (!isCurrent && seasons.has(season)) return seasons.get(season);
-      if (!isCurrent && currentSeason===season && openData.length) return openData;
-      const round = known.find(m=>m.status==='live' || Math.abs(Date.now()-Date.parse(m.kickoff))<3*3600000)?.round;
-      if (isCurrent && season===currentSeason && !round && Date.now()-seasonFetched<6*3600000) return openData;
-      previousPoll = Date.now();
-      const partial = isCurrent && season===currentSeason && round && Date.now()-seasonFetched<6*3600000;
-      const rows = await (await request(base+'getmatchdata/bl1/'+season+(partial ? '/'+round : ''))).json();
-      if (!Array.isArray(rows)) throw Error('Agenda da fonte inválida');
-      const normalized = rows.map(normalizeOpen).filter(Boolean);
-      if (partial) {
-        openData = [...new Map([...openData,...normalized].map(m=>[m.id,m])).values()];
-        return openData;
-      }
-      if (!isCurrent && season!==currentSeason) {
-        if (seasons.size>=4) seasons.delete(seasons.keys().next().value);
-        seasons.set(season,normalized);
-        return normalized;
-      }
-      openData = normalized;
-      currentSeason = season;
-      seasonFetched = Date.now();
-      if (rows.length) {
-        try { await writeFile(new URL('./bundesliga-cache.tmp',import.meta.url),JSON.stringify(rows)); await rename(new URL('./bundesliga-cache.tmp',import.meta.url),file); } catch {}
-      }
-      return openData;
+      const season = openSeason(day);
+      const activeFeeds = openFeeds.filter((_,index)=>!openLeagues[index].season || openLeagues[index].season===season);
+      const results = await Promise.allSettled(activeFeeds.map(feed=>feed.collect(day,known)));
+      if (results.every(result=>result.status==='rejected')) throw results[0].reason;
+      return results.flatMap((result,index)=>result.status==='fulfilled' ? result.value
+        : activeFeeds[index].seasons.get(season)?.matches ?? []);
     }
   };
 }

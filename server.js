@@ -1,7 +1,7 @@
 ﻿import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
-import { createSource, dateOf, priority } from './source.js';
+import { createSource, dateOf, openLeagues, priority } from './source.js';
 
 const key = process.env.API_FOOTBALL_KEY?.trim();
 const limit = Math.max(1, Number(process.env.API_DAILY_LIMIT) || 100);
@@ -35,7 +35,7 @@ function send(client, type, value) {
 function status(entry) {
   const {updated,error,processing,upstream,next} = entry;
   const nearby = seed.map(m=>m.date).filter(date=>date>entry.date).sort()[0] ?? null;
-  return {updated,error,processing,upstream,next,nearby,source:source.name,limited:!key};
+  return {updated,error,processing,upstream,next,nearby,source:source.name,limited:!key,leagues:key ? [] : openLeagues};
 }
 function publish(entry, type, value) {
   for (const client of entry.clients) send(client,type,value);
@@ -60,7 +60,7 @@ async function refresh(entry) {
     entry.upstream = Math.round(received-started);
     entry.error = null;
     entry.failures = 0;
-    if (upsert.length || remove.length) publish(entry,'patch',{upsert,remove,first});
+    if (upsert.length || remove.length) publish(entry,'patch',{upsert,remove,first,publishedAt:Date.now()});
   } catch (error) {
     entry.error = error.name==='TimeoutError' || error.message==='fetch failed' ? 'Fonte temporariamente indisponível' : error.message;
     entry.failures++;

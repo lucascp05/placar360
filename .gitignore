@@ -2,3 +2,6 @@
 bundesliga-cache.json
 bundesliga-cache.tmp
 *.log
+.browser-test-profile/
+openliga-*.json
+openliga-*.tmp

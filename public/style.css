@@ -40,3 +40,10 @@
 [data-theme=light] .favorite{color:var(--muted)}
 [data-theme=light] .favorite.saved{color:var(--accent)}
 @keyframes goal-light{from{background:#bde3a7}to{background:#dcefd4}}
+@media(max-width:375px){
+  .section-header{align-items:start;flex-direction:column;gap:5px}
+  .date-label{text-align:left}
+  .filters{grid-template-columns:minmax(0,1fr)}
+  .tools select{max-width:100%}
+  .footer{flex-wrap:wrap}
+}
