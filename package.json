@@ -1,0 +1,1 @@
+{"name":"placar360","version":"1.0.0","private":true,"type":"module","scripts":{"start":"node --use-system-ca --env-file-if-exists=.env server.js","test":"node --test"}}

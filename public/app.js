@@ -1,0 +1,294 @@
+﻿const paths = {
+  grid:'<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>',
+  settings:'<path d="M4 7h16M4 12h16M4 17h16"/><path d="M9 5v4m6 1v4m-5 1v4"/>',
+  pulse:'<path d="M2 12h5l3-7 4 14 3-7h5"/>',
+  star:'<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z"/>',
+  search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
+  calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 10h18"/>',
+  left:'<path d="m14 6-6 6 6 6"/>',right:'<path d="m10 6 6 6-6 6"/>',down:'<path d="m6 9 6 6 6-6"/>',
+  muted:'<path d="M3 9h4l5-4v14l-5-4H3zM16 9l5 6m0-6-5 6"/>',
+  sound:'<path d="M3 9h4l5-4v14l-5-4H3zm13-1a6 6 0 0 1 0 8m2-11a10 10 0 0 1 0 14"/>',
+  trophy:'<path d="M8 3h8v6a4 4 0 0 1-8 0zm0 2H4v2a4 4 0 0 0 4 4m8-6h4v2a4 4 0 0 1-4 4m-4 2v5m-5 2h10"/>',
+  ball:'<circle cx="12" cy="12" r="9"/><path d="m12 8 4 3-1.5 5h-5L8 11zm0 0V3m4 8 4.5-1.5m-6 6.5 3 3.5m-8-3.5-3 3.5M8 11 3.5 9.5"/>',
+  card:'<rect x="7" y="3" width="10" height="18" rx="1"/>',swap:'<path d="M3 7h16l-4-4m6 14H5l4 4"/>',
+  var:'<rect x="3" y="5" width="18" height="13" rx="1"/><path d="M8 21h8"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
+};
+const icon = name => '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+paths[name]+'</svg>';
+const $ = id => document.getElementById(id);
+document.querySelectorAll('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon));
+const esc = value => String(value ?? '').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch]);
+const dayFormat = new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo'});
+const timeFormat = new Intl.DateTimeFormat('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'});
+const weekFormat = new Intl.DateTimeFormat('pt-BR',{weekday:'short',timeZone:'UTC'});
+const titleFormat = new Intl.DateTimeFormat('pt-BR',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
+const monthFormat = new Intl.DateTimeFormat('pt-BR',{month:'short',timeZone:'UTC'});
+const dateValue = date=>new Date(date+'T12:00:00Z');
+const shift = (date,n)=>new Date(dateValue(date).getTime()+n*86400000).toISOString().slice(0,10);
+let today = dayFormat.format(new Date()), date = today, mode = 'all', league = '', query = '', stream;
+let matches = new Map(), opened = new Set(), highlights = new Map(), arrivals = new Map(), sound = false, audio;
+let connected = false, initialized = false, status = {};
+let agenda = false, competition = null, calendar = [], calendarRequest, calendarLoaded = false, round = '';
+const preferences = {theme:'dark',density:'normal'};
+for (const [id,fallback] of Object.entries(preferences)) {
+  const select = $(id);
+  try { select.value = localStorage.getItem('placar360-'+id) ?? fallback; } catch { select.value = fallback; }
+  const apply = () => {
+    document.documentElement.dataset[id] = select.value || fallback;
+    try { localStorage.setItem('placar360-'+id,select.value || fallback); } catch {}
+  };
+  select.onchange = apply;
+  apply();
+}
+let favorites;
+try { favorites = new Set(JSON.parse(localStorage.getItem('placar360-favorites') ?? '[]')); } catch { favorites = new Set(); }
+const leagueNames = {71:'Brasileirão Série A',72:'Brasileirão Série B',73:'Copa do Brasil',75:'Série C',475:'Copa do Nordeste',13:'Libertadores',11:'Sul-Americana',2:'Champions League',140:'La Liga',1:'Copa do Mundo'};
+const teamLogo = team => team.logo ? '<img class="crest" loading="lazy" decoding="async" width="23" height="23" alt="" src="'+esc(team.logo)+'">' : '<span class="crest crest-fallback">'+esc(team.name.slice(0,2).toUpperCase())+'</span>';
+const leagueName = item=> leagueNames[item.id] ?? item.name;
+const roundName = value => typeof value==='number' ? 'Rodada '+value : (value ?? '').replace(/^Regular Season - /i,'Rodada ');
+const shortDate = new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short',timeZone:'UTC'});
+const legacyDetails = {'Normal Goal':'Gol','Own Goal':'Gol contra',Penalty:'Pênalti convertido','Missed Penalty':'Pênalti perdido','Yellow Card':'Cartão amarelo','Red Card':'Cartão vermelho','Second Yellow card':'Segundo amarelo','Goal cancelled':'Gol anulado','Goal confirmed':'Gol confirmado','Penalty confirmed':'Pênalti confirmado','Penalty cancelled':'Pênalti cancelado'};
+function eventHTML(event, match, compact=false) {
+  const symbol = ({Gol:'ball',Cartão:'card',Substituição:'swap',VAR:'var',Fase:'clock'})[event.kind];
+  const type = legacyDetails[event.detail] ?? (event.kind==='Fase' ? event.detail : event.kind);
+  const side = [match.home,match.away].find(t=>t.id===event.team);
+  const note = event.assist ? (event.kind==='Gol' ? 'Assistência: ' : event.kind==='Substituição' ? 'Outro jogador: ' : '')+event.assist : '';
+  const eventClass = event.kind==='Cartão' ? (/red/i.test(event.detail) ? 'red' : 'yellow') : event.kind==='Gol' ? 'green' : '';
+  return '<div class="event"><span class="event-icon '+eventClass+'">'+icon(symbol)+'</span><div><strong>'+esc(type)+(event.player ? ' · '+esc(event.player) : '')+'</strong><small>'+esc([compact ? match.home.name+' × '+match.away.name : side?.name,note].filter(Boolean).join(' · '))+'</small></div><time>'+esc(event.minute===null ? '' : event.minute+(event.extra ? '+'+event.extra : '')+'′')+'</time></div>';
+}
+function rowHTML(m) {
+  const isOpen = opened.has(m.id), saved = favorites.has(m.id), live = m.status==='live';
+  const clock = live ? m.statusLabel || m.clock || 'Em jogo' : m.status==='final' ? 'Encerrado' : m.statusLabel || timeFormat.format(new Date(m.kickoff));
+  const fresh = highlights.get(m.id);
+  const teams = [m.home,m.away];
+  const dateText = agenda ? '<small>'+esc(shortDate.format(dateValue(m.date)))+'</small>' : '';
+  return '<div class="match-main"><span class="match-time '+(live?'live':'')+'">'+(live?'<i></i> ':'')+esc(clock)+dateText+'</span><button class="match-details" data-action="details" aria-expanded="'+isOpen+'"><span class="teams">'+teams.map(t=>'<span>'+teamLogo(t)+esc(t.name)+'</span>').join('')+'</span><span class="scores">'+m.score.map((s,i)=>'<b>'+esc(s ?? '–')+(m.penalties[i]!==null ? '<small> ('+esc(m.penalties[i])+')</small>' : '')+'</b>').join('')+'</span>'+icon('down')+'</button><button class="favorite '+(saved?'saved':'')+'" data-action="favorite" aria-pressed="'+saved+'" aria-label="'+(saved?'Remover dos favoritos':'Favoritar')+'">'+icon('star')+'</button></div>'+(isOpen ? '<div class="timeline"><h3>Linha do tempo</h3>'+m.events.map(e=>eventHTML(e,m)).join('')+(!m.detailed ? '<p>Detalhes limitados aos eventos informados pela fonte.</p>' : !m.events.length ? '<p>Nenhum evento registrado.</p>' : '')+'</div>' : '')+(fresh ? '<span class="fresh-label">'+esc(['Gol',fresh.player,fresh.minute===null ? '' : fresh.minute+(fresh.extra?'+'+fresh.extra:'')+'′'].filter(Boolean).join(' · '))+'</span>' : '');
+}
+const matchNodes = new Map(), groupNodes = new Map();
+const tidy = value => value.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase();
+function render() {
+  const merged = agenda ? new Map(calendar.filter(m=>m.date!==date || !status.updated).map(m=>[m.id,m])) : new Map();
+  for (const m of matches.values()) if (!competition || m.league.id===competition.id) merged.set(m.id,m);
+  const list = [...merged.values()].sort((a,b)=>Date.parse(a.kickoff)-Date.parse(b.kickoff));
+  const live = [...matches.values()].filter(m=>m.status==='live').length;
+  $('heading').textContent = competition ? leagueName(list.find(m=>m.league.id===competition.id)?.league ?? competition) : agenda ? 'Agenda' : 'Partidas';
+  $('section-label').lastChild.textContent = competition ? ' CAMPEONATO' : agenda ? ' CALENDÁRIO' : ' PLACAR DO DIA';
+  document.querySelectorAll('[data-agenda]').forEach(button=>button.setAttribute('aria-pressed',String(agenda&&!competition)));
+  $('side-live').textContent=live;
+  document.querySelectorAll('[data-mode]').forEach(button=>{
+    button.classList.toggle('selected',button.dataset.mode===mode);
+    button.setAttribute('aria-pressed',button.dataset.mode===mode);
+  });
+  const leagues = new Map(list.map(m=>[String(m.league.id),m.league]));
+  if (status.limited && !leagues.has('78')) leagues.set('78',{id:78,name:'Bundesliga',season:Number(date.slice(0,4))-(Number(date.slice(5,7))<7?1:0)});
+  const competitionLink = l => '/?competition='+encodeURIComponent(l.id)+'&season='+encodeURIComponent(l.season ?? date.slice(0,4))+'&date='+date;
+  const leagueLinks = [...leagues].map(([id,l])=>'<a class="side-button '+(competition?.id===l.id?'selected':'')+'" href="'+competitionLink(l)+'"><span class="league-icon">'+icon('trophy')+'</span>'+esc(leagueName(l))+'</a>').join('');
+  if ($('leagues').dataset.html!==leagueLinks) { $('leagues').innerHTML=leagueLinks || '<p>Nenhum campeonato nesta data</p>'; $('leagues').dataset.html=leagueLinks; }
+  const options = '<option value="">Todos os campeonatos</option>'+[...leagues].map(([id,l])=>'<option value="'+esc(id)+'">'+esc(leagueName(l))+'</option>').join('');
+  if ($('league-select').dataset.html!==options) { $('league-select').innerHTML=options; $('league-select').dataset.html=options; }
+  $('league-select').value=league;
+  const needle = tidy(query.trim());
+  const rounds = [...new Set(list.map(m=>m.round).filter(Boolean))];
+  const roundOptions = '<option value="">Todas as rodadas</option>'+rounds.map(value=>'<option value="'+esc(value)+'">'+esc(roundName(value))+'</option>').join('');
+  if ($('round-filter').dataset.html!==roundOptions) { $('round-filter').innerHTML=roundOptions; $('round-filter').dataset.html=roundOptions; }
+  $('round-filter').value=round;
+  $('round-filter').hidden=!competition || !rounds.length;
+  const statusFilter = $('status-filter').value;
+  const shown = list.filter(m=>(mode!=='live'||m.status==='live')&&(mode!=='favorites'||favorites.has(m.id))&&(!league||String(m.league.id)===league)
+    &&(!competition||round||mode!=='all'||m.status==='live'||(m.date>=shift(date,-7)&&m.date<=shift(date,21)))
+    &&(!statusFilter||m.status===statusFilter)&&(!round||String(m.round)===round)
+    &&(!needle||[m.home.name,m.away.name,leagueName(m.league),m.league.name].some(n=>tidy(n).includes(needle))));
+  $('results-meta').innerHTML='<strong>'+shown.length+' '+(shown.length===1?'partida':'partidas')+'</strong><span></span><span>'+live+' ao vivo</span>';
+  const container = $('matches'), usedGroups = new Set(), usedMatches = new Set();
+  const empty = agenda ? calendarLoaded ? ['Nenhuma partida encontrada','Experimente mudar os filtros ou a data.'] : ['Consultando a agenda','Aguardando a resposta da fonte.'] : !initialized ? ['Buscando partidas','Aguardando a conexão com a central.'] : status.error && !status.updated && !list.length ? ['Fonte indisponível','A central tentará se conectar novamente.'] : !status.updated && !list.length ? ['Consultando a agenda','Aguardando a primeira resposta da fonte.'] : ['Nenhuma partida encontrada',list.length ? 'Experimente mudar os filtros da lista.' : 'A fonte não informou partidas para esta data.'];
+  let placeholder = $('empty');
+  if (!shown.length) {
+    if (!placeholder) { placeholder=document.createElement('div'); placeholder.id='empty'; placeholder.className='empty'; container.append(placeholder); }
+    const markup = '<div>'+icon('ball')+'</div><h2>'+empty[0]+'</h2><p>'+empty[1]+'</p>'+(date===today?'<button data-nearby="'+(status.nearby ?? shift(date,1))+'">Ver próxima data</button>':'<button data-nearby="0">Voltar para hoje</button>');
+    if (placeholder.innerHTML!==markup) placeholder.innerHTML=markup;
+  } else placeholder?.remove();
+  for (const m of shown) {
+    const id = competition ? JSON.stringify([m.round,m.date]) : String(m.league.id);
+    let group = groupNodes.get(id);
+    if (!group) {
+      group = document.createElement('section');
+      group.className='league-group';
+      const title = competition ? roundName(m.round) || leagueName(m.league) : '<a href="'+competitionLink(m.league)+'">'+esc(leagueName(m.league))+'</a>';
+      group.innerHTML='<div class="league-heading"><span class="league-icon">'+(m.league.logo ? '<img alt="" width="22" height="22" src="'+esc(m.league.logo)+'">' : icon('trophy'))+'</span><div><h2>'+(competition?esc(title):title)+'</h2><small>'+esc(competition?titleFormat.format(dateValue(m.date)):m.league.country)+'</small></div></div>';
+      groupNodes.set(id,group);
+    }
+    if (!usedGroups.has(id) && !group.isConnected) container.append(group);
+    usedGroups.add(id);
+    let row = matchNodes.get(m.id);
+    if (!row) {
+      row = document.createElement('article'); row.dataset.match=m.id;
+      matchNodes.set(m.id,row);
+    }
+    const html = rowHTML(m);
+    if (row.dataset.rendered!==html) {
+      const action = row.contains(document.activeElement) ? document.activeElement.dataset.action : null;
+      row.innerHTML=html;
+      row.dataset.rendered=html;
+      if (action) row.querySelector('[data-action="'+action+'"]')?.focus({preventScroll:true});
+    }
+    row.className='match'+(highlights.has(m.id)?' fresh':'');
+    if (row.parentNode!==group) group.append(row);
+    usedMatches.add(m.id);
+  }
+  for (const [id,row] of matchNodes) if (!usedMatches.has(id)) { row.remove(); matchNodes.delete(id); }
+  for (const [id,group] of groupNodes) if (!usedGroups.has(id)) { group.remove(); groupNodes.delete(id); }
+  const recent = [...matches.values()].flatMap(m=>m.events.map(e=>({e,m,arrival:arrivals.get(m.id+e.id) ?? 0})))
+    .sort((a,b)=>b.arrival-a.arrival||(Date.parse(b.m.kickoff)+(b.e.minute??130)*60000)-(Date.parse(a.m.kickoff)+(a.e.minute??130)*60000)).slice(0,20);
+  const feed = recent.length ? recent.map(({e,m})=>eventHTML(e,m,true)).join('') : '<div class="feed-empty"><div class="radar">'+icon('pulse')+'</div><strong>Nenhum evento registrado</strong><p>Os eventos disponíveis das partidas aparecem aqui.</p></div>';
+  if ($('feed-content').dataset.html!==feed) { $('feed-content').innerHTML=feed; $('feed-content').dataset.html=feed; }
+}
+function paintStatus() {
+  const label = connected ? status.error ? 'Fonte indisponível' : status.updated ? 'Conectado' : 'Conectado · aguardando fonte' : 'Reconectando';
+  $('connection').classList.toggle('online',connected&&!status.error&&Boolean(status.updated));
+  $('connection').innerHTML='<i></i> '+label;
+  $('source-name').textContent=status.source ?? 'Fonte esportiva';
+  $('source-hint').textContent=status.limited ? 'Bundesliga · cobertura comunitária' : status.source ? 'Cobertura conforme o plano da fonte' : 'Aguardando conexão';
+  $('updated').textContent=status.updated ? 'Consulta às '+timeFormat.format(new Date(status.updated)) : status.cached ? 'Agenda em cache' : 'Aguardando dados';
+  $('latency').textContent=(status.processing!=null ? 'Servidor: '+status.processing+' ms · Coleta/cache: '+status.upstream+' ms · ' : '')+'Atraso do evento na fonte: desconhecido';
+  $('attribution').innerHTML=status.limited ? 'Dados: <a href="https://www.openligadb.de/en/license" target="_blank" rel="noopener">OpenLigaDB (ODbL)</a>' : status.source ? 'Dados: API-Football' : '';
+}
+function ping() {
+  if (!sound || !audio || audio.state!=='running') return;
+  const now=audio.currentTime, gain=audio.createGain(), osc=audio.createOscillator();
+  osc.frequency.setValueAtTime(530,now); osc.frequency.setValueAtTime(760,now+0.075);
+  gain.gain.setValueAtTime(0.001,now); gain.gain.exponentialRampToValueAtTime(0.12,now+0.035); gain.gain.exponentialRampToValueAtTime(0.001,now+0.21);
+  osc.connect(gain).connect(audio.destination); osc.start(); osc.stop(now+0.23);
+}
+function updateDates() {
+  $('date-label').textContent=titleFormat.format(dateValue(date));
+  $('date').value=date;
+  $('days').innerHTML=Array.from({length:7},(_,i)=>{
+    const day=shift(date,i-3), d=dateValue(day);
+    return '<button class="day '+(day===date?'active':'')+'" data-date="'+day+'" aria-pressed="'+(day===date)+'"><span>'+esc(day===today?'Hoje':weekFormat.format(d).replace('.',''))+'</span><b>'+d.getUTCDate()+'</b><small>'+esc(monthFormat.format(d).replace('.',''))+'</small></button>';
+  }).join('');
+}
+async function loadCalendar() {
+  calendarRequest?.abort();
+  const request = new AbortController();
+  calendarRequest = request;
+  const params = new URLSearchParams({date});
+  if (competition) { params.set('league',competition.id); params.set('season',competition.season); }
+  const note = $('calendar-note');
+  note.hidden = false;
+  note.textContent = 'Consultando a agenda…';
+  try {
+    const response = await fetch('/api/calendar?'+params,{signal:request.signal});
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error || 'Agenda indisponível');
+    if (request.signal.aborted) return;
+    calendar = data.matches;
+    note.textContent = data.error ? 'Agenda em cache · '+data.error : data.cached ? 'Agenda em cache' : '';
+  } catch (error) {
+    if (request.signal.aborted) return;
+    note.textContent = error.message;
+  }
+  note.hidden = !note.textContent;
+  calendarLoaded = true;
+  render();
+}
+function openDate(next) {
+  if (!/^20\d\d-\d\d-\d\d$/.test(next) || !Number.isFinite(Date.parse(next)) || shift(next,0)!==next) return;
+  stream?.close();
+  calendarRequest?.abort();
+  calendar = []; calendarLoaded = false;
+  $('calendar-note').hidden = true;
+  date=next; league=''; status={}; matches.clear(); opened.clear(); arrivals.clear(); highlights.clear();
+  initialized=false; connected=false;
+  updateDates(); render(); paintStatus();
+  stream=new EventSource('/api/stream?date='+encodeURIComponent(date));
+  stream.addEventListener('open',()=>{connected=true;paintStatus();});
+  stream.addEventListener('error',()=>{connected=false;paintStatus();});
+  stream.addEventListener('snapshot',event=>{
+    status=JSON.parse(event.data); matches=new Map(status.matches.map(m=>[m.id,m])); initialized=true; render(); paintStatus();
+    if (agenda && (status.limited && matches.size || status.updated)) void loadCalendar();
+  });
+  stream.addEventListener('status',event=>{
+    const firstUpdate = !status.updated;
+    status={...status,...JSON.parse(event.data)};render();paintStatus();
+    if (agenda && (firstUpdate || !calendarLoaded) && (status.limited || status.updated || status.error)) {
+      if (status.limited) void loadCalendar();
+      else setTimeout(()=>{if (date===next && agenda && !calendarLoaded) void loadCalendar();},6500);
+    }
+  });
+  stream.addEventListener('patch',event=>{
+    const {upsert,remove,first}=JSON.parse(event.data);
+    let goal=false;
+    for(const id of remove) matches.delete(id);
+    for(const m of upsert) {
+      const previous=matches.get(m.id), before=new Set(previous?.events.map(e=>e.id));
+      if (date===today&&!first&&previous&&(m.status==='live'||previous.status==='live')) {
+        for(const e of m.events.filter(e=>!before.has(e.id))) {
+          arrivals.set(m.id+e.id,Date.now());
+          if(e.kind==='Gol'&&e.detail!=='Missed Penalty'&&m.score.some((n,i)=>n>previous.score[i])) {
+            goal=true; highlights.set(m.id,e);
+            setTimeout(()=>{if (highlights.get(m.id)===e) {highlights.delete(m.id);render();}},5250);
+          }
+        }
+      }
+      matches.set(m.id,m);
+    }
+    render(); if(goal) ping();
+  });
+}
+document.addEventListener('click',event=>{
+  const button=event.target.closest('button');
+  if (!button) return;
+  const {mode:nextMode,date:nextDate,action,nearby}=button.dataset;
+  if (button.hasAttribute('data-settings')) $('settings').showModal();
+  if (button.hasAttribute('data-date-today')) {
+    agenda=false; competition=null; round=''; mode='all'; $('status-filter').value='';
+    history.replaceState(null,'','/');
+    openDate(today);
+  }
+  if (button.hasAttribute('data-agenda')) {
+    const leaving = agenda && !competition;
+    agenda=!leaving; competition=null; round=''; mode='all';
+    $('status-filter').value=agenda?'scheduled':'';
+    history.replaceState(null,'','/');
+    if (leaving) {calendarRequest?.abort(); $('calendar-note').hidden=true; render();}
+    else { render(); void loadCalendar(); }
+  }
+  if (nextMode) {mode=nextMode; if (nextMode!=='all') $('status-filter').value=''; render();}
+  if (nextDate&&nextDate!==date) openDate(nextDate);
+  if (nearby!==undefined) openDate(nearby==='0' ? today : nearby);
+  if (action) {
+    const id=button.closest('[data-match]').dataset.match;
+    const set=action==='favorite'?favorites:opened;
+    if(set.has(id)) set.delete(id); else set.add(id);
+    if(action==='favorite') { try {localStorage.setItem('placar360-favorites',JSON.stringify([...favorites]));} catch {} }
+    render();
+  }
+});
+$('prev').onclick=()=>openDate(shift(date,-1));
+$('next').onclick=()=>openDate(shift(date,1));
+$('date').onchange=event=>{if(/^20\d\d-\d\d-\d\d$/.test(event.target.value)) openDate(event.target.value);};
+$('league-select').onchange=event=>{league=event.target.value;render();};
+$('status-filter').onchange=()=>{mode='all';render();};
+$('round-filter').onchange=event=>{round=event.target.value;render();};
+$('search').oninput=event=>{query=event.target.value;render();};
+$('sound').innerHTML=icon('muted');
+$('sound').onclick=async()=>{
+  if(!sound) {
+    try {audio ??= new AudioContext(); await audio.resume();} catch {return;}
+  }
+  sound=!sound;
+  $('sound').innerHTML=icon(sound?'sound':'muted');
+  $('sound').setAttribute('aria-pressed',String(sound));
+  $('sound').setAttribute('aria-label',sound?'Desativar som de gol':'Ativar som de gol');
+};
+setInterval(()=>{
+  const next=dayFormat.format(new Date());
+  if(next!==today){const follow=date===today;today=next;if(follow)openDate(today);else updateDates();}
+},30000);
+const params = new URLSearchParams(location.search);
+if (/^\d+$/.test(params.get('competition') ?? '') && /^20\d\d$/.test(params.get('season') ?? '')) {
+  competition={id:Number(params.get('competition')),season:Number(params.get('season')),name:'Campeonato'};
+  agenda=true;
+}
+const initialDate = params.get('date');
+openDate(initialDate && /^20\d\d-\d\d-\d\d$/.test(initialDate) && Number.isFinite(Date.parse(initialDate)) && shift(initialDate,0)===initialDate ? initialDate : today);
+

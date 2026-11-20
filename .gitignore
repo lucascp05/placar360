@@ -1,0 +1,4 @@
+.env
+bundesliga-cache.json
+bundesliga-cache.tmp
+*.log
