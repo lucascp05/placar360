@@ -103,9 +103,28 @@ createServer(async (req,res)=>{
     res.end(asset.body);
     return;
   }
-  if (!['/api/stream','/api/status','/api/calendar'].includes(url.pathname)) { res.writeHead(404).end(); return; }
+  if (!['/api/stream','/api/status','/api/calendar','/api/match'].includes(url.pathname)) { res.writeHead(404).end(); return; }
   const date = url.searchParams.get('date') ?? dateOf(Date.now());
   if (!validDay(date)) { res.writeHead(400).end(); return; }
+  if (url.pathname==='/api/match') {
+    const id = url.searchParams.get('id') ?? '';
+    if (!/^(?:open|api)-\d+$/.test(id)) { res.writeHead(400).end(); return; }
+    res.setHeader('Content-Type','application/json; charset=utf-8');
+    res.setHeader('Cache-Control','no-store');
+    let match = days.get(date)?.matches.find(m=>m.id===id) ?? seed.find(m=>m.id===id);
+    let error;
+    try {
+      if (key && id.startsWith('api-') && (!match?.detailed || !match?.lineups?.length)) {
+        match = await source.fixture(id) ?? match;
+      } else if (!match && !key && id.startsWith('open-')) {
+        const agenda = await source.calendar(date,date);
+        match = agenda.matches.find(m=>m.id===id);
+      }
+    } catch (failure) { error = failure.message; }
+    if (!match) res.statusCode = error ? 503 : 404;
+    res.end(JSON.stringify({match,error}));
+    return;
+  }
   if (url.pathname==='/api/calendar') {
     const league = Number(url.searchParams.get('league'));
     const season = Number(url.searchParams.get('season'));
@@ -113,7 +132,12 @@ createServer(async (req,res)=>{
       res.writeHead(400).end();
       return;
     }
-    const from = shiftDay(date,-7), to = shiftDay(date,21);
+    const from = url.searchParams.get('from') ?? shiftDay(date,-7);
+    const to = url.searchParams.get('to') ?? shiftDay(date,21);
+    if (!validDay(from) || !validDay(to) || to<from || to>shiftDay(from,29)) {
+      res.writeHead(400).end();
+      return;
+    }
     res.setHeader('Content-Type','application/json; charset=utf-8');
     res.setHeader('Cache-Control','no-store');
     try {

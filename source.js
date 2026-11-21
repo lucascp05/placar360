@@ -36,7 +36,7 @@ function markers(status, clock) {
   return endedCodes.has(status) ? [marker(labels[status])] : [];
 }
 export function normalizeApi(raw) {
-  const {fixture,league,teams,goals,score,events} = raw ?? {};
+  const {fixture,league,teams,goals,score,events,statistics,lineups} = raw ?? {};
   if (!Number.isInteger(fixture?.id) || !validDate(fixture.date) || !league?.id || !teams?.home?.name || !teams?.away?.name) return null;
   const status = fixture.status?.short;
   const team = entry => ({id:entry.id,name:asText(entry.name),logo:logo(entry.logo)});
@@ -49,6 +49,15 @@ export function normalizeApi(raw) {
     clock:labels[status] ?? (liveCodes.has(status) ? minuteOf(fixture.status.elapsed,fixture.status.extra) : ''),
     statusLabel:({PST:'Adiado',CANC:'Cancelado',SUSP:'Suspenso',ABD:'Abandonado',AWD:'Resultado atribuído',WO:'W.O.',INT:'Interrompido',TBD:'Horário a definir',P:'Pênaltis'})[status] ?? '',
     detailed:Array.isArray(events),
+    venue:asText(fixture.venue?.name), referee:asText(fixture.referee),
+    statistics:Array.isArray(statistics) ? statistics.filter(s=>s?.team?.id).map(s=>({
+      team:s.team.id, values:(s.statistics ?? []).filter(v=>v?.type && v.value != null).map(v=>({label:v.type,value:v.value}))
+    })) : [],
+    lineups:Array.isArray(lineups) ? lineups.filter(l=>l?.team?.id).map(l=>({
+      team:l.team.id, formation:asText(l.formation),
+      starters:(l.startXI ?? []).flatMap(({player})=>player?.name ? [{name:player.name,number:player.number,grid:player.grid}] : []),
+      substitutes:(l.substitutes ?? []).flatMap(({player})=>player?.name ? [{name:player.name,number:player.number}] : [])
+    })) : [],
   }, [...markers(status,fixture.status),...(Array.isArray(events) ? events : []).filter(e=>['Goal','Card','subst','Var'].includes(e?.type)).map(e=>({
     kind:({Goal:'Gol',Card:'Cartão',subst:'Substituição',Var:'VAR'})[e.type],detail:asText(e.detail),
     minute:asNumber(e.time?.elapsed),extra:asNumber(e.time?.extra),team:e.team?.id ?? null,
@@ -77,6 +86,7 @@ export function normalizeOpen(raw, league = openLeagues[0]) {
     id:'open-'+raw.matchID,date:dateOf(raw.matchDateTimeUTC),kickoff:raw.matchDateTimeUTC,round:raw.group?.groupOrderID,
     league:{id:league.id,name:league.name,country:league.country,logo:'',season:Number(raw.leagueSeason)||null},home:team(raw.team1),away:team(raw.team2),score,
     penalties:[null,null],status:final ? 'final' : active ? 'live' : 'scheduled',clock:'',statusLabel:'',
+    venue:asText(raw.location?.locationStadium),
     sourceUpdated:validDate(raw.lastUpdateDateTime) && /(?:Z|[+-]\d\d:\d\d)$/.test(raw.lastUpdateDateTime) ? raw.lastUpdateDateTime : null,detailed:false,
   }, final ? [...events,marker('Encerramento')] : events);
 }
@@ -92,9 +102,19 @@ function createOpenFeed(league, request) {
   const temporary = new URL('./'+cacheName+'.tmp',import.meta.url);
   const normalize = rows => rows.map(row=>normalizeOpen(row,league)).filter(Boolean);
   const seasons = new Map();
+  const pending = new Map();
   let previousPoll = 0;
   return {
     seasons,
+    schedule(season) {
+      if (league.season && league.season!==season) return Promise.resolve([]);
+      if (seasons.has(season)) return Promise.resolve(seasons.get(season).matches);
+      if (!pending.has(season)) {
+        const result = this.collect(season+'-08-01',[]).finally(()=>pending.delete(season));
+        pending.set(season,result);
+      }
+      return pending.get(season);
+    },
     async initialize() {
       try {
         const rows = JSON.parse(await readFile(file,'utf8'));
@@ -163,18 +183,40 @@ export function createSource(key, limit) {
     return data.response.map(normalizeApi).filter(m=>m && priority.includes(m.league.id));
   }
   const calendars = new Map();
+  const details = new Map();
   return {
     name:key ? 'API-Football' : 'OpenLigaDB',
     async initialize() {
       return (await Promise.all(openFeeds.map(feed=>feed.initialize()))).flat();
     },
+    fixture(id) {
+      if (!key) return Promise.resolve(null);
+      const cached = details.get(id);
+      if (cached && Date.now()-cached.time<cached.ttl) return cached.result;
+      const entry = {time:Date.now(),ttl:60000};
+      entry.result = apiFixtures('id='+id.slice(4)).then(([match])=>{
+        if (match?.status==='final') entry.ttl=86400000;
+        return match ?? null;
+      }).catch(error=>{
+        details.delete(id);
+        throw error;
+      });
+      details.set(id,entry);
+      if (details.size>100) details.delete(details.keys().next().value);
+      return entry.result;
+    },
     async calendar(day, end, league, season) {
       if (!key) {
-        const dates = new Set([openSeason(day),openSeason(end)]);
+        const dates = new Set(league ? [season] : [openSeason(day),openSeason(end)]);
+        const requests = openFeeds.flatMap((feed,index)=>league && league!==openLeagues[index].id
+          ? [] : [...dates].map(year=>feed.schedule(year)));
+        const results = await Promise.allSettled(requests);
+        if (requests.length && results.every(r=>r.status==='rejected')) throw results[0].reason;
         const schedules = openFeeds.flatMap((feed,index)=>[...feed.seasons].filter(([year])=>league
           ? openLeagues[index].id===league && year===season : dates.has(year)).map(([,data])=>data));
         if (!schedules.length) throw Error('Aguardando a agenda da fonte');
-        return {matches:schedules.flatMap(data=>data.matches), cached:schedules.every(data=>!data.updated)};
+        return {matches:schedules.flatMap(data=>data.matches), cached:schedules.every(data=>!data.updated),
+          error:results.some(r=>r.status==='rejected') ? 'Cobertura parcial da agenda nesta consulta' : undefined};
       }
       const scope = league ? 'league='+league+'&season='+season : 'from='+day+'&to='+end;
       const cached = calendars.get(scope);
@@ -209,7 +251,9 @@ export function createSource(key, limit) {
           if (!previous) return m;
           const phases = previous.events.filter(e=>e.kind==='Fase' && !e.detail.startsWith('Encerramento'));
           const events = m.detailed ? [] : previous.events.filter(e=>e.kind!=='Fase');
-          return addEvents({...m,detailed:m.detailed||previous.detailed},[...phases,...events,...m.events]);
+          return addEvents({...m,detailed:m.detailed||previous.detailed,
+            statistics:m.statistics.length ? m.statistics : previous.statistics,
+            lineups:m.lineups.length ? m.lineups : previous.lineups},[...phases,...events,...m.events]);
         });
         if (canFocus) {
           const movedIds = new Set(fetched.filter(m=>m.date!==day).map(m=>m.id));
