@@ -17,11 +17,14 @@
 <main class="workspace">
 <aside class="sidebar" aria-label="Navegação por campeonato">
 <div class="side-label">EXPLORAR</div>
-<button class="side-button selected" data-mode="all"><span data-icon="grid"></span> Todas as partidas</button>
-<button class="side-button" data-date-today><span data-icon="calendar"></span> Jogos de hoje</button>
-<button class="side-button" data-mode="live"><span data-icon="pulse"></span> Ao vivo <b id="side-live">0</b></button>
-<button class="side-button" data-agenda><span data-icon="calendar"></span> Próximos jogos</button>
-<button class="side-button" data-mode="favorites"><span data-icon="star"></span> Favoritos</button>
+<a class="side-button" href="/" data-view="home"><span data-icon="grid"></span> Início</a>
+<a class="side-button" href="/?view=live" data-view="live"><span data-icon="pulse"></span> Ao vivo <b id="side-live">0</b></a>
+<a class="side-button" href="/?view=today" data-view="today"><span data-icon="calendar"></span> Jogos de hoje</a>
+<a class="side-button" href="/?view=upcoming" data-view="upcoming"><span data-icon="calendar"></span> Próximos jogos</a>
+<a class="side-button" href="/?view=results" data-view="results"><span data-icon="clock"></span> Resultados anteriores</a>
+<a class="side-button" href="/?view=competitions" data-view="competitions"><span data-icon="trophy"></span> Campeonatos</a>
+<a class="side-button" href="/?view=teams" data-view="teams"><span data-icon="ball"></span> Times</a>
+<a class="side-button" href="/?view=favorites" data-view="favorites"><span data-icon="star"></span> Favoritos</a>
 <button class="side-button" data-settings><span data-icon="settings"></span> Configurações</button>
 <div class="side-label league-label">CAMPEONATOS</div>
 <div id="leagues"></div>
@@ -31,9 +34,10 @@
 <section id="match-page" hidden aria-labelledby="match-title"></section>
 <div class="section-header"><div><div class="eyebrow" id="section-label"><span></span> PLACAR DO DIA</div><div class="profile-title"><span id="profile-crest" hidden></span><h1 id="heading">Partidas</h1></div></div><div id="date-label" class="date-label"></div></div>
 <div class="date-panel"><button id="prev" class="icon-button" aria-label="Dia anterior"><span data-icon="left"></span></button><div id="days" class="days"></div><button id="next" class="icon-button" aria-label="Próximo dia"><span data-icon="right"></span></button><label class="calendar" title="Escolher data"><span data-icon="calendar"></span><input id="date" type="date" aria-label="Escolher data"></label></div>
+<div id="range" class="tabs" aria-label="Período do calendário" hidden><button data-range="1">Amanhã</button><button data-range="7">7 dias</button><button data-range="30">30 dias</button></div>
 <div class="filters">
 <div class="tabs" aria-label="Filtro de partidas"><button data-mode="all" class="selected">Todas</button><button data-mode="live"><i></i> Ao vivo</button><button data-mode="favorites"><span data-icon="star"></span> Favoritos</button></div>
-<label class="search"><span data-icon="search"></span><input id="search" type="search" placeholder="Equipe ou campeonato" aria-label="Buscar equipe ou campeonato"></label>
+<label class="search"><span data-icon="search"></span><input id="search" type="search" placeholder="Times, campeonatos e jogos" aria-label="Buscar times, campeonatos e jogos"></label>
 <select id="league-select" aria-label="Campeonato"><option value="">Todos os campeonatos</option></select>
 <div class="tools">
 <button class="utility" data-agenda><span data-icon="calendar"></span> Agenda</button>
@@ -44,6 +48,7 @@
 </div>
 <p id="calendar-note" class="calendar-note" role="status" hidden></p>
 <section id="competition-panel" hidden></section>
+<div id="explore-content" hidden></div>
 <div id="results-meta" class="results-meta"></div>
 <div id="matches" aria-live="polite"></div>
 </section>
@@ -54,6 +59,13 @@
 </aside>
 <footer class="footer"><span>PLACAR<span class="accent">360</span></span><span id="attribution"></span><span>Horários de Brasília</span></footer>
 </main>
+<nav class="mobile-nav" aria-label="Navegação principal">
+<a href="/" data-view="home"><span data-icon="grid"></span>Início</a>
+<a href="/?view=live" data-view="live"><span data-icon="pulse"></span>Ao vivo</a>
+<a href="/?view=upcoming" data-view="upcoming"><span data-icon="calendar"></span>Agenda</a>
+<a href="/?view=competitions" data-view="competitions"><span data-icon="trophy"></span>Ligas</a>
+<a href="/?view=favorites" data-view="favorites"><span data-icon="star"></span>Favoritos</a>
+</nav>
 <dialog id="settings">
 <form method="dialog">
 <h2>Configurações</h2>

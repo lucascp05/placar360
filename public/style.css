@@ -65,3 +65,28 @@
  .lineup-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,225px),1fr)); gap:1rem; }
  .pitch { display:grid; gap:1rem; padding:1rem .4rem; background:#143e2a; color:#fff; border:1px solid #71ad8a; }
  .pitch div { display:flex; justify-content:space-evenly; gap:.25rem; text-align:center; font-size:.8rem; }
+ .mobile-nav { display:none; }
+ [data-view][aria-current=page] { color:var(--accent); border-color:var(--accent); background:var(--raised); }
+ #league-select { display:block; background:var(--panel); border:1px solid var(--line); color:var(--text); min-width:0; padding:.45rem; }
+ #explore-content { margin-block:1rem; }
+ #explore-content a { display:grid; gap:.2rem; padding:.6rem; overflow-wrap:anywhere; }
+ #explore-content > a { background:var(--panel); border-bottom:1px solid var(--line); }
+ #explore-content a:hover { color:var(--accent); }
+ #explore-content small, .home-strip p { color:var(--muted); }
+ .home-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); background:var(--panel); border:1px solid var(--line); }
+ .home-strip section { min-width:0; border-top:3px solid var(--accent); }
+ .home-strip section + section { border-inline-start:1px solid var(--line); }
+ .home-strip h2 { font-size:.9rem; background:var(--raised); }
+ .home-strip p { padding:.6rem; font-size:.84rem; }
+ .home-strip strong { font-size:.85rem; }
+ @media(max-width:890px) {
+   body { padding-bottom:calc(62px + env(safe-area-inset-bottom)); }
+   .mobile-nav { display:grid; position:fixed; z-index:4; inset:auto 0 0; grid-template-columns:repeat(5,minmax(0,1fr)); border-top:1px solid var(--line); background:var(--panel); padding-bottom:env(safe-area-inset-bottom); }
+   .mobile-nav a { display:grid; gap:.3rem; justify-items:center; align-content:center; border-top:2px solid transparent; min-height:58px; text-align:center; font-size:.75rem; }
+ }
+ @media(max-width:520px) {
+   .home-strip { grid-template-columns:1fr; }
+   .home-strip section + section { border-inline-start:0; }
+   #competition-panel .tabs { flex-wrap:wrap; }
+ }
+ .saved-row { display:grid; grid-template-columns:minmax(0,1fr) 3rem; border-bottom:1px solid var(--line); background:var(--panel); }
