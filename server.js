@@ -12,7 +12,8 @@ const days = new Map();
 const validDay = date => /^20\d\d-\d\d-\d\d$/.test(date) && Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0,10)===date;
 const shiftDay = (date,n) => new Date(Date.parse(date)+n*86400000).toISOString().slice(0,10);
 const assets = new Map(await Promise.all([
-  ['/','index.html','text/html'],['/app.js','app.js','text/javascript'],['/style.css','style.css','text/css']
+  ['/','index.html','text/html'],['/app.js','app.js','text/javascript'],
+  ['/notifications.js','notifications.js','text/javascript'],['/style.css','style.css','text/css']
 ].map(async ([route,file,type])=>[route,{body:await readFile(new URL('./public/'+file,import.meta.url)),type}])));
 const frontendVersion = createHash('sha256').update(assets.get('/app.js').body).digest('hex').slice(0,12);
 let busy = false;

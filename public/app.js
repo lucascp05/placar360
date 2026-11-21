@@ -1,4 +1,7 @@
-﻿const paths = {
+import { createNotifications } from './notifications.js';
+
+const paths = {
+  bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-2 7-2 9h16c0-2-2-2-2-9m-8 12a2 2 0 0 0 4 0"/>',
   grid:'<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>',
   settings:'<path d="M4 7h16M4 12h16M4 17h16"/><path d="M9 5v4m6 1v4m-5 1v4"/>',
   pulse:'<path d="M2 12h5l3-7 4 14 3-7h5"/>',
@@ -123,7 +126,7 @@ function renderMatchPage() {
     content = opponents?.length ? '<h2>Encontros nesta temporada</h2><ul>'+opponents.map(m=>'<li><a href="'+matchLink(m)+'">'+esc([shortDate.format(dateValue(m.date)),m.home.name,m.score.map(n=>n ?? '–').join(' : '),m.away.name].join(' · '))+'</a></li>').join('')+'</ul>' : '<p role="status">'+(contextPending?'Consultando a temporada…':'Nenhum confronto anterior disponível nesta temporada.')+'</p>';
   }
   const state = match.statusLabel || (match.status==='live' ? match.clock || 'Em jogo' : match.status==='final' ? 'Encerrado' : 'Agendado');
-  const markup = '<div class="detail-actions"><a href="/?date='+match.date+'" data-return-match>Voltar aos jogos</a><a href="'+competitionLink(match.league,match.date)+'">'+esc(leagueName(match.league))+'</a></div><h1 id="match-title">'+esc(teams.map(t=>t.name).join(' × '))+'</h1><div class="match-hero">'+teams.map((t,i)=>'<a href="'+teamLink(t,match)+'">'+teamLogo(t)+esc(t.name)+'</a>'+(i===0?'<strong>'+esc(match.score.map(n=>n ?? '–').join(' : '))+'</strong>':'')).join('')+'</div><p>'+esc([state,roundName(match.round),titleFormat.format(dateValue(match.date)),timeFormat.format(new Date(match.kickoff)),match.venue,match.referee].filter(Boolean).join(' · '))+'</p><div class="match-actions"><button class="utility" data-favorite-match aria-pressed="'+favorites.has(match.id)+'">'+(favorites.has(match.id)?'Remover dos favoritos':'Favoritar')+'</button><button class="utility" data-copy-match>Copiar link</button></div><div class="tabs" aria-label="Detalhes da partida">'+tabs.map(([id,label])=>'<button data-match-tab="'+id+'" class="'+(id===matchTab?'selected':'')+'" aria-pressed="'+(id===matchTab)+'">'+label+'</button>').join('')+'</div>'+(matchPageError ? '<p role="status">'+esc(matchPageError)+'</p>' : '')+content;
+  const markup = '<div class="detail-actions"><a href="/?date='+match.date+'" data-return-match>Voltar aos jogos</a><a href="'+competitionLink(match.league,match.date)+'">'+esc(leagueName(match.league))+'</a></div><h1 id="match-title">'+esc(teams.map(t=>t.name).join(' × '))+'</h1><div class="match-hero">'+teams.map((t,i)=>'<a href="'+teamLink(t,match)+'">'+teamLogo(t)+esc(t.name)+'</a>'+(i===0?'<strong>'+esc(match.score.map(n=>n ?? '–').join(' : '))+'</strong>':'')).join('')+'</div><p>'+esc([state,roundName(match.round),titleFormat.format(dateValue(match.date)),timeFormat.format(new Date(match.kickoff)),match.venue,match.referee].filter(Boolean).join(' · '))+'</p><div class="match-actions"><button class="utility" data-favorite-match aria-pressed="'+favorites.has(match.id)+'">'+(favorites.has(match.id)?'Remover dos favoritos':'Favoritar')+'</button><button class="utility" data-follow-match aria-pressed="'+notifications.following(match.id)+'">'+(notifications.following(match.id)?'Editar alertas':'Ativar alertas')+'</button><button class="utility" data-copy-match>Copiar link</button></div><div class="tabs" aria-label="Detalhes da partida">'+tabs.map(([id,label])=>'<button data-match-tab="'+id+'" class="'+(id===matchTab?'selected':'')+'" aria-pressed="'+(id===matchTab)+'">'+label+'</button>').join('')+'</div>'+(matchPageError ? '<p role="status">'+esc(matchPageError)+'</p>' : '')+content;
   if (panel.dataset.html!==markup) { panel.innerHTML=markup; panel.dataset.html=markup; }
 }
 let matchRequest;
@@ -403,8 +406,8 @@ function paintStatus() {
   $('latency').textContent=(status.processing!=null ? 'Servidor: '+status.processing+' ms · Coleta/cache: '+status.upstream+' ms · ' : '')+(delivery!==null ? 'Entrega e renderização local: '+delivery+' ms · ' : '')+'Atraso do evento na fonte: desconhecido';
   $('attribution').innerHTML=status.limited ? 'Dados: <a href="https://www.openligadb.de/en/license" target="_blank" rel="noopener">OpenLigaDB (ODbL)</a>'+(status.supplemental ? ' · <a href="https://www.espn.com.br/futebol/" target="_blank" rel="noopener">ESPN</a>' : '') : status.source ? 'Dados: API-Football' : '';
 }
-function ping() {
-  if (!sound || !audio || audio.state!=='running') return;
+function ping(force=false) {
+  if ((!sound && !force) || !audio || audio.state!=='running') return;
   const now=audio.currentTime, gain=audio.createGain(), osc=audio.createOscillator();
   osc.frequency.setValueAtTime(530,now); osc.frequency.setValueAtTime(760,now+0.075);
   gain.gain.setValueAtTime(0.001,now); gain.gain.exponentialRampToValueAtTime(0.12,now+0.035); gain.gain.exponentialRampToValueAtTime(0.001,now+0.21);
@@ -464,6 +467,7 @@ function openDate(next, reconnect=false) {
   paintStatus();
   const connection = new EventSource('/api/stream?date='+encodeURIComponent(date));
   stream=connection;
+  notifications.sync();
   stream.addEventListener('open',()=>{connected=true;paintStatus();});
   stream.addEventListener('error',()=>{
     connected=false;paintStatus();
@@ -490,6 +494,7 @@ function openDate(next, reconnect=false) {
     for(const id of remove) matches.delete(id);
     for(const m of upsert) {
       const previous=matches.get(m.id), before=new Set(previous?.events.map(e=>e.id));
+      if (!first) notifications.deliver(previous,m);
       if (date===today&&!first&&previous&&(m.status==='live'||previous.status==='live')) {
         const increased = scoreTotal(m.score)>scoreTotal(previous.score);
         for(const e of m.events.filter(e=>!before.has(e.id))) {
@@ -554,6 +559,10 @@ document.addEventListener('click',event=>{
     try {localStorage.setItem('placar360-favorites',JSON.stringify([...favorites]));} catch {}
     renderMatchPage();
   }
+  if (button.hasAttribute('data-follow-match')) {
+    const match=matches.get(matchPageId) ?? matchSnapshot;
+    if (match) notifications.edit(match);
+  }
   if (button.hasAttribute('data-copy-match')) {
     if (navigator.clipboard) void navigator.clipboard.writeText(location.href).then(()=>{button.textContent='Link copiado';},()=>{button.textContent='Selecione o endereço na barra do navegador';});
     else button.textContent='Selecione o endereço na barra do navegador';
@@ -617,12 +626,17 @@ $('sound').onclick=async()=>{
 };
 setInterval(()=>{
   const next=dayFormat.format(new Date());
-  if(next!==today){const follow=date===today;today=next;if(follow)openDate(today);else updateDates();}
+  if(next!==today){const follow=!matchPageId&&date===today;today=next;if(follow)openDate(today);else updateDates();notifications.sync();}
 },30000);
 window.addEventListener('pagehide',()=>stream?.close());
 window.addEventListener('pageshow',event=>{
   if (event.persisted) openDate(date,true);
 });
+const notifications=createNotifications({escape:esc,icon,today:()=>today,activeDate:()=>date,onChange:renderMatchPage,
+  onSound:async records=>{
+    if (sound && records?.some(record=>record.types.includes('goal'))) return;
+    try { audio ??= new AudioContext(); if (!records) await audio.resume(); ping(true); } catch {}
+  }});
 const params = new URLSearchParams(location.search);
 if (Object.hasOwn(viewTitles,params.get('view'))) view=params.get('view');
 agenda = ['home','upcoming','results','teams','competitions'].includes(view);
