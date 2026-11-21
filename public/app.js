@@ -29,7 +29,7 @@ let matches = new Map(), opened = new Set(), highlights = new Map(), arrivals = 
 let connected = false, initialized = false, status = {}, delivery = null;
 let agenda = false, competition = null, calendar = [], calendarRequest, calendarLoaded = false, round = '';
 let competitionTab = 'overview';
-let matchPageId, matchSnapshot, matchPageError, matchTab = 'events', teamId;
+let matchPageId, matchSnapshot, matchPageError, matchTab = 'events', teamId, matchContext, contextPending;
 const viewTitles = {home:'Central de futebol',today:'Jogos de hoje',live:'Ao vivo',upcoming:'Próximos jogos',results:'Resultados anteriores',competitions:'Campeonatos',teams:'Times',favorites:'Favoritos'};
 let view = 'home', range = 7;
 const preferences = {theme:'dark',density:'normal'};
@@ -97,7 +97,7 @@ function renderMatchPage() {
     return;
   }
   const teams = [match.home,match.away];
-  const tabs = [['events','Acontecimentos'],['numbers','Estatísticas'],['lineups','Escalações']];
+  const tabs = [['events','Acontecimentos'],['numbers','Estatísticas'],['lineups','Escalações'],['context','Confrontos']];
   let content;
   if (matchTab==='events') {
     content = match.events.map(event=>eventHTML(event,match)).join('')+
@@ -116,11 +116,27 @@ function renderMatchPage() {
       return '<section><h2>'+esc(teams.find(t=>t.id===l.team)?.name)+' '+esc(l.formation)+'</h2>'+pitch+'<h3>Titulares</h3><ul>'+players(l.starters)+'</ul><h3>Reservas</h3><ul>'+players(l.substitutes)+'</ul></section>';
     }).join('')+'</div>' : '<p>Escalações indisponíveis para esta partida.</p>';
   }
+  if (matchTab==='context') {
+    const opponents = matchContext?.filter(m=>m.id!==match.id && m.status==='final' && teams.every(t=>[m.home.id,m.away.id].includes(t.id))).slice(-5).reverse();
+    content = opponents?.length ? '<h2>Encontros nesta temporada</h2><ul>'+opponents.map(m=>'<li><a href="'+matchLink(m)+'">'+esc([shortDate.format(dateValue(m.date)),m.home.name,m.score.map(n=>n ?? '–').join(' : '),m.away.name].join(' · '))+'</a></li>').join('')+'</ul>' : '<p role="status">'+(contextPending?'Consultando a temporada…':'Nenhum confronto anterior disponível nesta temporada.')+'</p>';
+  }
   const state = match.statusLabel || (match.status==='live' ? match.clock || 'Em jogo' : match.status==='final' ? 'Encerrado' : 'Agendado');
   const markup = '<a href="'+competitionLink(match.league,match.date)+'">'+esc(leagueName(match.league))+'</a><h1 id="match-title">'+esc(teams.map(t=>t.name).join(' × '))+'</h1><div class="match-hero">'+teams.map((t,i)=>'<a href="'+teamLink(t,match)+'">'+teamLogo(t)+esc(t.name)+'</a>'+(i===0?'<strong>'+esc(match.score.map(n=>n ?? '–').join(' : '))+'</strong>':'')).join('')+'</div><p>'+esc([state,roundName(match.round),titleFormat.format(dateValue(match.date)),timeFormat.format(new Date(match.kickoff)),match.venue,match.referee].filter(Boolean).join(' · '))+'</p><div class="tabs" aria-label="Detalhes da partida">'+tabs.map(([id,label])=>'<button data-match-tab="'+id+'" class="'+(id===matchTab?'selected':'')+'" aria-pressed="'+(id===matchTab)+'">'+label+'</button>').join('')+'</div>'+(matchPageError ? '<p role="status">'+esc(matchPageError)+'</p>' : '')+content;
   if (panel.dataset.html!==markup) { panel.innerHTML=markup; panel.dataset.html=markup; }
 }
 let matchRequest;
+async function loadMatchContext() {
+  const match = matches.get(matchPageId) ?? matchSnapshot;
+  if (!match || contextPending || matchContext) return;
+  contextPending=true;
+  renderMatchPage();
+  try {
+    const response = await fetch('/api/calendar?'+new URLSearchParams({date:match.date,league:match.league.id,season:match.league.season}));
+    if (!response.ok) throw Error('Calendário indisponível');
+    matchContext = (await response.json()).matches.sort((a,b)=>Date.parse(a.kickoff)-Date.parse(b.kickoff));
+  } catch { matchContext=null; }
+  finally { contextPending=false; renderMatchPage(); }
+}
 async function loadMatch() {
   if (!matchPageId || matchRequest) return;
   matchRequest = true;
@@ -177,6 +193,16 @@ function renderCompetition(list) {
     content = scorers.size ? '<p class="calendar-note">Artilharia dos jogos encerrados com autores de gols informados na agenda.</p><table class="data-table"><thead><tr><th scope="col">Jogador</th><th scope="col">Clube</th><th scope="col">Gols</th></tr></thead><tbody>'+[...scorers.values()].sort((a,b)=>b.goals-a.goals).slice(0,30).map(row=>'<tr><th scope="row">'+esc(row.name)+'</th><td>'+esc(row.team ?? '—')+'</td><td>'+row.goals+'</td></tr>').join('')+'</tbody></table>' : '<p class="calendar-note">A agenda desta temporada não informou artilharia.</p>';
   }
   const selectedTeam = teamId && list.flatMap(m=>[m.home,m.away]).find(t=>String(t.id)===teamId);
+  if (selectedTeam && competitionTab==='games') {
+    const fixtures = list.filter(m=>[m.home.id,m.away.id].includes(selectedTeam.id));
+    const latest = fixtures.filter(m=>m.status==='final' && m.score.every(Number.isFinite)).slice(-5).reverse();
+    const next = fixtures.find(m=>m.status==='live') ?? fixtures.find(m=>m.status==='scheduled' && Date.parse(m.kickoff)>=Date.now());
+    content = '<div class="competition-summary">'+(latest.length?'<div><small>Últimos resultados</small><div class="form-guide">'+latest.map(m=>{
+      const index = m.home.id===selectedTeam.id ? 0 : 1;
+      const diff = m.score[index]-m.score[1-index];
+      return '<a href="'+matchLink(m)+'" aria-label="'+esc(m.home.name+' '+m.score.join(' : ')+' '+m.away.name)+'">'+(diff>0?'V':diff===0?'E':'D')+'</a>';
+    }).join('')+'</div></div>':'')+(next?'<div><small>'+(next.status==='live'?'Em jogo':'Próxima partida')+'</small><a href="'+matchLink(next)+'">'+esc(next.home.name+' × '+next.away.name)+'</a></div>':'')+'</div>';
+  }
   const key = teamId ? 'team-'+competition.id+'-'+teamId : 'competition-'+competition.id;
   const saved = savedEntries.has(key);
   const favorite = !teamId || selectedTeam ? '<button class="utility" data-save-profile="'+key+'" aria-pressed="'+saved+'">'+(saved?'Salvo':'Favoritar')+'</button>' : '';
@@ -194,7 +220,11 @@ function renderExplore(leagues,list) {
   for (const m of list) for (const t of [m.home,m.away]) clubs.set(m.league.id+':'+t.id,{t,m});
   const clubLinks = [...clubs.values()].filter(({t})=>found(t.name)).sort((a,b)=>a.t.name.localeCompare(b.t.name)).map(({t,m})=>link(teamLink(t,m),t.name,leagueName(m.league)));
   let markup = '';
-  if (view==='competitions') markup = leagueLinks.join('');
+  if (view==='competitions') {
+    const region = l => l.country==='Brazil' || l.country==='Brasil' ? 'Brasil'
+      : [1,4,9,960].includes(l.id) ? 'Seleções' : [11,13].includes(l.id) ? 'América do Sul' : 'Europa';
+    markup = [...Map.groupBy([...leagues.values()].filter(l=>found(leagueName(l))),region)].map(([name,items])=>'<section class="catalog-group"><h2>'+name+'</h2>'+items.map(l=>link(competitionLink(l,date),leagueName(l),l.country)).join('')+'</section>').join('');
+  }
   if (view==='teams') markup = clubLinks.join('');
   if (view==='favorites') markup = [...savedEntries.values()].filter(item=>found(item.label)).map(item=>'<div class="saved-row">'+link(item.href,item.label,item.info)+'<button class="favorite" data-remove-saved="'+esc(item.key)+'" aria-label="Remover '+esc(item.label)+' dos favoritos">'+icon('star')+'</button></div>').join('');
   if (needle && !directories && view!=='favorites') markup = [...leagueLinks,...clubLinks].slice(0,12).join('');
@@ -217,7 +247,8 @@ function render() {
   $('matches').hidden = $('results-meta').hidden = !showFixtures;
   const live = [...matches.values()].filter(m=>m.status==='live').length;
   const team = teamId && list.flatMap(m=>[m.home,m.away]).find(t=>String(t.id)===teamId);
-  $('heading').textContent = teamId ? team?.name ?? 'Perfil da equipe' : competition ? leagueName(list.find(m=>m.league.id===competition.id)?.league ?? competition) : view==='legacy' ? 'Agenda' : viewTitles[view];
+  const heading = view==='legacy' ? 'Agenda' : view==='today' && date!==today ? 'Jogos por data' : viewTitles[view];
+  $('heading').textContent = teamId ? team?.name ?? 'Perfil da equipe' : competition ? leagueName(list.find(m=>m.league.id===competition.id)?.league ?? competition) : heading;
   const crest = $('profile-crest');
   crest.innerHTML = team ? teamLogo(team) : '';
   crest.hidden = !team;
@@ -241,6 +272,18 @@ function render() {
   const options = '<option value="">Todos os campeonatos</option>'+[...leagues].map(([id,l])=>'<option value="'+esc(id)+'">'+esc(leagueName(l))+'</option>').join('');
   if ($('league-select').dataset.html!==options) { $('league-select').innerHTML=options; $('league-select').dataset.html=options; }
   $('league-select').value=league;
+  const teamFilter = $('team-filter');
+  teamFilter.hidden = view!=='upcoming';
+  if (!teamFilter.hidden) {
+    const previous = teamFilter.value;
+    const teams = new Map(list.filter(m=>!league||String(m.league.id)===league).flatMap(m=>[m.home,m.away].map(t=>[String(t.id),t.name])));
+    const teamOptions = '<option value="">Todas as equipes</option>'+[...teams].sort((a,b)=>a[1].localeCompare(b[1])).map(([id,name])=>'<option value="'+esc(id)+'">'+esc(name)+'</option>').join('');
+    if (teamFilter.dataset.html!==teamOptions) {
+      teamFilter.innerHTML=teamOptions;
+      teamFilter.dataset.html=teamOptions;
+      teamFilter.value=teams.has(previous) ? previous : '';
+    }
+  }
   const needle = tidy(query.trim());
   const rounds = [...new Set(list.map(m=>m.round).filter(Boolean))];
   const roundOptions = '<option value="">Todas as rodadas e fases</option>'+rounds.map(value=>{
@@ -255,11 +298,12 @@ function render() {
   const shown = list.filter(m=>(mode!=='live'||m.status==='live')&&(mode!=='favorites'||favorites.has(m.id))&&(!league||String(m.league.id)===league)
     &&(view!=='home'||m.date===date)
     &&(view!=='upcoming'||(m.date>=date&&m.date<=shift(date,range-1)&&['scheduled','other'].includes(m.status)))
+    &&(view!=='upcoming'||!teamFilter.value||[m.home,m.away].some(t=>String(t.id)===teamFilter.value))
     &&(view!=='results'||(m.status==='final'&&m.date<=date&&m.date>=shift(date,-6)))
     &&(!teamId||[m.home,m.away].some(t=>String(t.id)===teamId))
     &&(!competition||competitionTab==='games'||round||mode!=='all'||m.status==='live'||(m.date>=shift(date,-7)&&m.date<=shift(date,21)))
     &&(!statusFilter||m.status===statusFilter)&&(!round||String(m.round)===round)
-    &&(!needle||[m.home.name,m.away.name,leagueName(m.league),m.league.name].some(n=>tidy(n).includes(needle))));
+    &&(!needle||needle.split(/\s+/).every(term=>tidy([m.home.name,m.away.name,leagueName(m.league),m.league.name].join(' ')).includes(term))));
   $('results-meta').innerHTML='<strong>'+shown.length+' '+(shown.length===1?'partida':'partidas')+'</strong><span></span><span>'+live+' ao vivo</span>';
   const container = $('matches'), usedGroups = new Set(), usedMatches = new Set(), lastRows = new Map();
   let previousGroup;
@@ -452,6 +496,7 @@ document.addEventListener('click',event=>{
     matchTab=button.dataset.matchTab;
     renderMatchPage();
     $('match-page').querySelector('[aria-pressed="true"]')?.focus();
+    if (matchTab==='context') void loadMatchContext();
   }
   if (button.hasAttribute('data-settings')) $('settings').showModal();
   if (button.hasAttribute('data-date-today')) {
@@ -491,6 +536,7 @@ $('prev').onclick=()=>openDate(shift(date,-1));
 $('next').onclick=()=>openDate(shift(date,1));
 $('date').onchange=event=>{if(/^20\d\d-\d\d-\d\d$/.test(event.target.value)) openDate(event.target.value);};
 $('league-select').onchange=event=>{league=event.target.value;render();};
+$('team-filter').onchange=render;
 $('status-filter').onchange=()=>{mode='all';render();};
 $('round-filter').onchange=event=>{round=event.target.value;if(round) competitionTab='games';render();};
 $('search').oninput=event=>{query=event.target.value;render();};

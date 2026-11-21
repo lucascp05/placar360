@@ -68,3 +68,50 @@ test('normaliza eventos duplicados, VAR, acréscimos e correções de placar',()
   assert.equal(postponed.statusLabel,'Adiado');
   assert.deepEqual(postponed.events,[]);
 });
+
+test('carrega e compartilha uma temporada histórica sob demanda',async t=>{
+  const calls = [];
+  t.mock.method(globalThis,'fetch',async url=>{
+    calls.push(url);
+    return Response.json([{
+      matchID:42, matchDateTimeUTC:'2022-08-20T13:30:00Z', leagueSeason:2022, group:{groupOrderID:3},
+      team1:{teamId:1,teamName:'Mandante'}, team2:{teamId:2,teamName:'Visitante'}, matchIsFinished:true,
+      matchResults:[{resultTypeID:2,pointsTeam1:1,pointsTeam2:0}]
+    }]);
+  });
+  const source = createSource(undefined,100);
+  const window = ['2022-08-01','2022-08-30',78,2022];
+  const [first,second] = await Promise.all([source.calendar(...window),source.calendar(...window)]);
+  assert.equal(calls.length,1);
+  assert.match(calls[0],/getmatchdata\/bl1\/2022$/);
+  assert.deepEqual(first,second);
+  assert.equal(first.matches[0].round,3);
+  assert.deepEqual(first.matches[0].score,[1,0]);
+});
+
+test('busca detalhes históricos sem repetir a consulta e preserva os dados fornecidos',async t=>{
+  const request = t.mock.method(globalThis,'fetch',async url=>{
+    assert.equal(new URL(url).searchParams.get('id'),'321');
+    return Response.json({response:[{
+      fixture:{id:321,date:'2024-08-20T22:00:00Z',status:{short:'FT'},venue:{name:'Estádio'},referee:'Árbitro'},
+      league:{id:71,name:'Serie A',season:2024},
+      teams:{home:{id:10,name:'Mandante'},away:{id:20,name:'Visitante'}},goals:{home:0,away:0},
+      events:[], statistics:[{team:{id:10},statistics:[{type:'Shots on Goal',value:0},{type:'Ball Possession',value:'52%'}]}],
+      lineups:[{team:{id:10},formation:'4-3-3',startXI:[{player:{name:'Goleiro',number:1,grid:'1:1'}}]}]
+    }]});
+  });
+  const source = createSource('chave-de-teste',1);
+  const [match,duplicate] = await Promise.all([source.fixture('api-321'),source.fixture('api-321')]);
+  assert.deepEqual(match,duplicate);
+  assert.equal(request.mock.callCount(),1);
+  assert.equal(match.venue,'Estádio');
+  assert.equal(match.lineups[0].starters[0].grid,'1:1');
+  assert.equal(match.statistics[0].values[0].value,0);
+  await assert.rejects(source.fixture('api-322'),/Cota diária/);
+});
+
+test('distingue erro do fornecedor de uma agenda vazia',async t=>{
+  t.mock.method(globalThis,'fetch',async()=>Response.json({errors:{plan:'temporada indisponível'},response:[]}));
+  const source = createSource('chave-de-teste',2);
+  await assert.rejects(source.calendar('2022-08-01','2022-08-30',78,2022),/Fonte recusou/);
+});

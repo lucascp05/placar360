@@ -39,7 +39,11 @@
 <div class="tabs" aria-label="Filtro de partidas"><button data-mode="all" class="selected">Todas</button><button data-mode="live"><i></i> Ao vivo</button><button data-mode="favorites"><span data-icon="star"></span> Favoritos</button></div>
 <label class="search"><span data-icon="search"></span><input id="search" type="search" placeholder="Times, campeonatos e jogos" aria-label="Buscar times, campeonatos e jogos"></label>
 <select id="league-select" aria-label="Campeonato"><option value="">Todos os campeonatos</option></select>
+<select id="team-filter" aria-label="Equipe" hidden><option value="">Todas as equipes</option></select>
 <div class="tools">
+<a class="utility mobile-section" href="/?view=today">Hoje</a>
+<a class="utility mobile-section" href="/?view=results">Resultados</a>
+<a class="utility mobile-section" href="/?view=teams">Times</a>
 <button class="utility" data-agenda><span data-icon="calendar"></span> Agenda</button>
 <button class="utility" data-settings><span data-icon="settings"></span> Configurações</button>
 <select id="status-filter" aria-label="Status da partida"><option value="">Qualquer status</option><option value="scheduled">Agendadas</option><option value="live">Ao vivo</option><option value="final">Encerradas</option><option value="other">Adiados e outros</option></select>

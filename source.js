@@ -75,6 +75,8 @@ export function normalizeOpen(raw, league = openLeagues[0]) {
   const active = !final && Boolean(result || last);
   const score = [asNumber(result?.pointsTeam1),asNumber(result?.pointsTeam2)];
   if (!final && last) { score[0] = asNumber(last.scoreTeam1); score[1] = asNumber(last.scoreTeam2); }
+  const groupName = asText(raw.group?.groupName);
+  const round = groupName && !/^\d+\.\s*Spieltag$/i.test(groupName) ? groupName : raw.group?.groupOrderID;
   let previous = [0,0];
   const events = goals.map(goal => {
     const next = [goal.scoreTeam1,goal.scoreTeam2];
@@ -83,7 +85,7 @@ export function normalizeOpen(raw, league = openLeagues[0]) {
     return {kind:'Gol',detail:goal.isPenalty ? 'Penalty' : goal.isOwnGoal ? 'Own Goal' : '',minute:asNumber(goal.matchMinute),extra:null,team:goal.scoringTeamId || side,player:asText(goal.goalGetterName),assist:''};
   });
   return addEvents({
-    id:'open-'+raw.matchID,date:dateOf(raw.matchDateTimeUTC),kickoff:raw.matchDateTimeUTC,round:raw.group?.groupOrderID,
+    id:'open-'+raw.matchID,date:dateOf(raw.matchDateTimeUTC),kickoff:raw.matchDateTimeUTC,round,roundOrder:raw.group?.groupOrderID,
     league:{id:league.id,name:league.name,country:league.country,logo:'',season:Number(raw.leagueSeason)||null},home:team(raw.team1),away:team(raw.team2),score,
     penalties:[null,null],status:final ? 'final' : active ? 'live' : 'scheduled',clock:'',statusLabel:'',
     venue:asText(raw.location?.locationStadium),
@@ -132,7 +134,7 @@ function createOpenFeed(league, request) {
       const cached = seasons.get(season);
       const current = day === dateOf(now);
       const round = current && known.find(m=>m.league.id===league.id && m.status!=='final'
-        && (m.status==='live'||Math.abs(now-Date.parse(m.kickoff))<3*3600000))?.round;
+        && (m.status==='live'||Math.abs(now-Date.parse(m.kickoff))<3*3600000))?.roundOrder;
       if (now-previousPoll<30000) {
         if (cached) return cached.matches;
         throw Error('Aguardando intervalo de consulta');

@@ -67,7 +67,8 @@
  .pitch div { display:flex; justify-content:space-evenly; gap:.25rem; text-align:center; font-size:.8rem; }
  .mobile-nav { display:none; }
  [data-view][aria-current=page] { color:var(--accent); border-color:var(--accent); background:var(--raised); }
- #league-select { display:block; background:var(--panel); border:1px solid var(--line); color:var(--text); min-width:0; padding:.45rem; }
+ #league-select, #team-filter { display:block; background:var(--panel); border:1px solid var(--line); color:var(--text); min-width:0; padding:.45rem; }
+ @media(max-width:890px) { #team-filter { grid-column:1/-1; } }
  #explore-content { margin-block:1rem; }
  #explore-content a { display:grid; gap:.2rem; padding:.6rem; overflow-wrap:anywhere; }
  #explore-content > a { background:var(--panel); border-bottom:1px solid var(--line); }
@@ -90,3 +91,11 @@
    #competition-panel .tabs { flex-wrap:wrap; }
  }
  .saved-row { display:grid; grid-template-columns:minmax(0,1fr) 3rem; border-bottom:1px solid var(--line); background:var(--panel); }
+ .mobile-section { display:none; }
+ .catalog-group { border:1px solid var(--line); margin-block:.75rem; background:var(--panel); }
+ .catalog-group h2 { font-size:1rem; background:var(--raised); padding:.6rem; }
+ .catalog-group a + a { border-top:1px solid var(--line); }
+ .form-guide { display:flex; gap:.35rem; }
+ .form-guide a { padding:.25rem .55rem; background:var(--raised); color:var(--accent); }
+ #match-page .tabs { flex-wrap:wrap; }
+ @media(max-width:890px) { .mobile-section { display:inline-flex; align-items:center; } }
