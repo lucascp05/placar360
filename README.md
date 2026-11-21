@@ -71,7 +71,7 @@ Execute `npm test` para verificar fuso, normalização, deduplicação, correç�
 
 Com o servidor aberto e um Chrome isolado com depuração local na porta 9338, execute `node browser-check.mjs`. O roteiro usa o cache real de Bundesliga e verifica navegação, histórico, detalhes, perfis, calendário por rodada e por intervalo, busca, favoritos, som, temas, densidade, larguras móveis, reconexão do SSE e consultas locais concorrentes. Defina `APP_URL` para testar em outra porta. As capturas são gravadas no diretório temporário.
 
-Com o servidor sem chave e acesso às fontes, execute o roteiro com `CHECK_SOUTH_AMERICA=1` para verificar o catálogo, os resultados, os jogos agendados, as fases e as tabelas das três competições sul-americanas.
+Com o servidor sem chave e acesso às fontes, execute o roteiro com `CHECK_SOUTH_AMERICA=1` para verificar o catálogo, a navegação lateral, os resultados, os jogos agendados, as fases e as tabelas das três competições sul-americanas. Esse roteiro bloqueia apenas o SSE no navegador para confirmar que a agenda funciona independentemente do placar ao vivo.
 
 ## Capturas
 

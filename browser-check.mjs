@@ -60,12 +60,17 @@ async function capture(name) {
 async function checkSouthAmericanCompetitions() {
   const season = Number(dateOf(Date.now()).slice(0,4));
   const leagues = [[71,'Brasileirão Série A'],[73,'Copa do Brasil'],[13,'Copa Libertadores da América']];
+  await send('Network.enable');
+  await send('Network.setBlockedURLs',{urls:['*/api/stream*']});
   for (const [id,name] of leagues) {
     const catalog = base+'/?view=competitions';
     await navigate(catalog);
     const link = 'document.querySelector(\'#explore-content a[href*="competition='+id+'&"]\')';
     await until(link);
+    assert.deepEqual(await evaluate("[...document.querySelectorAll('#explore-content h2')].slice(0,2).map(h=>h.textContent)"),['Brasil','América do Sul']);
     assert.equal(await evaluate(link+'.querySelector("strong").textContent'),name);
+    const sidebarLink = 'document.querySelector(\'#leagues a[href*="competition='+id+'&"]\')';
+    assert.equal(await evaluate(sidebarLink+'.textContent.trim()'),name);
     await evaluate(link+'.click()');
     await until("location.search.includes('competition="+id+"') && document.querySelector('#round-filter option:nth-child(2)')",120);
     assert.equal(await evaluate("document.querySelector('#heading').textContent"),name);
@@ -97,6 +102,7 @@ async function checkSouthAmericanCompetitions() {
     assert.equal((await detail.json()).match.id,historical.id);
     console.log(name,matches.length+' partidas publicadas');
   }
+  await send('Network.setBlockedURLs',{urls:[]});
   assert.deepEqual(errors,[]);
 }
 
