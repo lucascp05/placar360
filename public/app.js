@@ -244,7 +244,9 @@ function renderExplore(leagues,list) {
   if (view==='competitions') {
     const region = l => l.country==='Brazil' || l.country==='Brasil' ? 'Brasil'
       : [1,4,9,960].includes(l.id) ? 'Seleções' : [11,13].includes(l.id) ? 'América do Sul' : 'Europa';
-    markup = [...Map.groupBy([...leagues.values()].filter(l=>found(leagueName(l))),region)].map(([name,items])=>'<section class="catalog-group"><h2>'+name+'</h2>'+items.map(l=>link(competitionLink(l,date),leagueName(l),l.country)).join('')+'</section>').join('');
+    const groups = Map.groupBy([...leagues.values()].filter(l=>found(leagueName(l))),region);
+    markup = ['Brasil','América do Sul','Europa','Seleções'].filter(name=>groups.has(name))
+      .map(name=>'<section class="catalog-group"><h2>'+name+'</h2>'+groups.get(name).map(l=>link(competitionLink(l,date),leagueName(l),l.country)).join('')+'</section>').join('');
   }
   if (view==='teams') markup = clubLinks.join('');
   if (view==='favorites') markup = [...savedEntries.values()].filter(item=>found(item.label)).map(item=>'<div class="saved-row">'+link(item.href,item.label,item.info)+'<button class="favorite" data-remove-saved="'+esc(item.key)+'" aria-label="Remover '+esc(item.label)+' dos favoritos">'+icon('star')+'</button></div>').join('');
