@@ -28,7 +28,8 @@
 <div class="source-note"><span class="tiny-signal" data-icon="pulse"></span><div><strong id="source-name">Fonte esportiva</strong><small id="source-hint">Aguardando conexão</small></div></div>
 </aside>
 <section class="scoreboard" aria-labelledby="heading">
-<div class="section-header"><div><div class="eyebrow" id="section-label"><span></span> PLACAR DO DIA</div><h1 id="heading">Partidas</h1></div><div id="date-label" class="date-label"></div></div>
+<section id="match-page" hidden aria-labelledby="match-title"></section>
+<div class="section-header"><div><div class="eyebrow" id="section-label"><span></span> PLACAR DO DIA</div><div class="profile-title"><span id="profile-crest" hidden></span><h1 id="heading">Partidas</h1></div></div><div id="date-label" class="date-label"></div></div>
 <div class="date-panel"><button id="prev" class="icon-button" aria-label="Dia anterior"><span data-icon="left"></span></button><div id="days" class="days"></div><button id="next" class="icon-button" aria-label="Próximo dia"><span data-icon="right"></span></button><label class="calendar" title="Escolher data"><span data-icon="calendar"></span><input id="date" type="date" aria-label="Escolher data"></label></div>
 <div class="filters">
 <div class="tabs" aria-label="Filtro de partidas"><button data-mode="all" class="selected">Todas</button><button data-mode="live"><i></i> Ao vivo</button><button data-mode="favorites"><span data-icon="star"></span> Favoritos</button></div>
@@ -37,7 +38,7 @@
 <div class="tools">
 <button class="utility" data-agenda><span data-icon="calendar"></span> Agenda</button>
 <button class="utility" data-settings><span data-icon="settings"></span> Configurações</button>
-<select id="status-filter" aria-label="Status da partida"><option value="">Qualquer status</option><option value="scheduled">Agendadas</option><option value="final">Encerradas</option><option value="other">Adiados e outros</option></select>
+<select id="status-filter" aria-label="Status da partida"><option value="">Qualquer status</option><option value="scheduled">Agendadas</option><option value="live">Ao vivo</option><option value="final">Encerradas</option><option value="other">Adiados e outros</option></select>
 <select id="round-filter" aria-label="Rodada" hidden></select>
 </div>
 </div>

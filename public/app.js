@@ -29,6 +29,7 @@ let matches = new Map(), opened = new Set(), highlights = new Map(), arrivals = 
 let connected = false, initialized = false, status = {}, delivery = null;
 let agenda = false, competition = null, calendar = [], calendarRequest, calendarLoaded = false, round = '';
 let competitionTab = 'overview';
+let matchPageId, matchSnapshot, matchPageError, matchTab = 'events', teamId;
 const preferences = {theme:'dark',density:'normal'};
 for (const [id,fallback] of Object.entries(preferences)) {
   const select = $(id);
@@ -48,6 +49,8 @@ const leagueName = item=> leagueNames[item.id] ?? item.name;
 const roundName = value => typeof value==='number' ? 'Rodada '+value : (value ?? '').replace(/^Regular Season - /i,'Rodada ');
 const shortDate = new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short',timeZone:'UTC'});
 const scoreTotal = score => score.reduce((sum,goals)=>sum+(goals ?? 0),0);
+const matchLink = m => '/?match='+encodeURIComponent(m.id)+'&date='+m.date;
+const teamLink = (team,m) => competitionLink(m.league,m.date)+'&team='+encodeURIComponent(team.id);
 const legacyDetails = {'Normal Goal':'Gol','Own Goal':'Gol contra',Penalty:'Pênalti convertido','Missed Penalty':'Pênalti perdido','Yellow Card':'Cartão amarelo','Red Card':'Cartão vermelho','Second Yellow card':'Segundo amarelo','Goal cancelled':'Gol anulado','Goal confirmed':'Gol confirmado','Penalty confirmed':'Pênalti confirmado','Penalty cancelled':'Pênalti cancelado'};
 function eventHTML(event, match, compact=false) {
   const symbol = ({Gol:'ball',Cartão:'card',Substituição:'swap',VAR:'var',Fase:'clock'})[event.kind];
@@ -63,11 +66,62 @@ function rowHTML(m) {
   const fresh = highlights.get(m.id);
   const teams = [m.home,m.away];
   const dateText = agenda ? '<small>'+esc(shortDate.format(dateValue(m.date)))+'</small>' : '';
-  return '<div class="match-main"><span class="match-time '+(live?'live':'')+'">'+(live?'<i></i> ':'')+esc(clock)+dateText+'</span><button class="match-details" data-action="details" aria-expanded="'+isOpen+'"><span class="teams">'+teams.map(t=>'<span>'+teamLogo(t)+esc(t.name)+'</span>').join('')+'</span><span class="scores">'+m.score.map((s,i)=>'<b>'+esc(s ?? '–')+(m.penalties[i]!==null ? '<small> ('+esc(m.penalties[i])+')</small>' : '')+'</b>').join('')+'</span>'+icon('down')+'</button><button class="favorite '+(saved?'saved':'')+'" data-action="favorite" aria-pressed="'+saved+'" aria-label="'+(saved?'Remover dos favoritos':'Favoritar')+'">'+icon('star')+'</button></div>'+(isOpen ? '<div class="timeline"><h3>Linha do tempo</h3>'+m.events.map(e=>eventHTML(e,m)).join('')+(!m.detailed ? '<p>Detalhes limitados aos eventos informados pela fonte.</p>' : !m.events.length ? '<p>Nenhum evento registrado.</p>' : '')+'</div>' : '')+(fresh ? '<span class="fresh-label">'+esc(['Gol',fresh.player,fresh.minute===null ? '' : fresh.minute+(fresh.extra?'+'+fresh.extra:'')+'′'].filter(Boolean).join(' · '))+'</span>' : '');
+  return '<div class="match-main"><span class="match-time '+(live?'live':'')+'">'+(live?'<i></i> ':'')+esc(clock)+dateText+'</span><button class="match-details" data-action="details" aria-expanded="'+isOpen+'"><span class="teams">'+teams.map(t=>'<span>'+teamLogo(t)+esc(t.name)+'</span>').join('')+'</span><span class="scores">'+m.score.map((s,i)=>'<b>'+esc(s ?? '–')+(m.penalties[i]!==null ? '<small> ('+esc(m.penalties[i])+')</small>' : '')+'</b>').join('')+'</span>'+icon('down')+'</button><button class="favorite '+(saved?'saved':'')+'" data-action="favorite" aria-pressed="'+saved+'" aria-label="'+(saved?'Remover dos favoritos':'Favoritar')+'">'+icon('star')+'</button></div>'+(isOpen ? '<div class="timeline"><div class="detail-actions"><a href="'+matchLink(m)+'">Abrir partida</a>'+teams.map(t=>'<a href="'+teamLink(t,m)+'">'+esc(t.name)+'</a>').join('')+'</div><h3>Linha do tempo</h3>'+m.events.map(e=>eventHTML(e,m)).join('')+(!m.detailed ? '<p>Detalhes limitados aos eventos informados pela fonte.</p>' : !m.events.length ? '<p>Nenhum evento registrado.</p>' : '')+'</div>' : '')+(fresh ? '<span class="fresh-label">'+esc(['Gol',fresh.player,fresh.minute===null ? '' : fresh.minute+(fresh.extra?'+'+fresh.extra:'')+'′'].filter(Boolean).join(' · '))+'</span>' : '');
 }
 const matchNodes = new Map(), groupNodes = new Map();
 const tidy = value => value.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase();
 const competitionLink = (l,date) => '/?competition='+encodeURIComponent(l.id)+'&season='+encodeURIComponent(l.season ?? date.slice(0,4))+'&date='+date;
+function renderMatchPage() {
+  const panel = $('match-page');
+  if (!matchPageId) return;
+  panel.hidden = false;
+  const live = matches.get(matchPageId);
+  const match = live && matchSnapshot ? {...matchSnapshot,...live,
+    statistics:live.statistics?.length ? live.statistics : matchSnapshot.statistics,
+    lineups:live.lineups?.length ? live.lineups : matchSnapshot.lineups,
+    events:live.detailed || !matchSnapshot.detailed ? live.events : matchSnapshot.events,
+    detailed:live.detailed || matchSnapshot.detailed} : live ?? matchSnapshot;
+  if (!match) {
+    panel.innerHTML='<h1 id="match-title">Partida</h1><p role="status">'+esc(matchPageError ?? 'Consultando a partida…')+'</p>';
+    return;
+  }
+  const teams = [match.home,match.away];
+  const tabs = [['events','Acontecimentos'],['numbers','Estatísticas'],['lineups','Escalações']];
+  let content;
+  if (matchTab==='events') {
+    content = match.events.map(event=>eventHTML(event,match)).join('')+
+      (!match.detailed ? '<p>Eventos limitados à cobertura da fonte.</p>' : !match.events.length ? '<p>Nenhum evento registrado.</p>' : '');
+  }
+  if (matchTab==='numbers') {
+    const values = teams.map(t=>new Map(match.statistics?.find(s=>s.team===t.id)?.values.map(v=>[v.label,v.value])));
+    const labels = new Set(values.flatMap(v=>[...v.keys()]));
+    content = labels.size ? '<table class="data-table"><thead><tr><th>'+esc(teams[0].name)+'</th><th scope="col">Estatística</th><th>'+esc(teams[1].name)+'</th></tr></thead><tbody>'+[...labels].map(label=>'<tr><td>'+esc(values[0].get(label) ?? '—')+'</td><th scope="row">'+esc(label)+'</th><td>'+esc(values[1].get(label) ?? '—')+'</td></tr>').join('')+'</tbody></table>' : '<p>Estatísticas indisponíveis para esta partida.</p>';
+  }
+  if (matchTab==='lineups') {
+    const players = list => list.map(p=>'<li>'+esc([p.number,p.name].filter(v=>v!=null).join(' · '))+'</li>').join('');
+    content = match.lineups?.length ? '<div class="lineup-grid">'+match.lineups.map(l=>{
+      const rows = Map.groupBy(l.starters.filter(p=>/^\d+:\d+$/.test(p.grid)),p=>Number(p.grid.split(':')[0]));
+      const pitch = rows.size && [...rows.values()].flat().length===l.starters.length ? '<div class="pitch" aria-label="Formação no campo">'+[...rows].sort(([a],[b])=>a-b).map(([,line])=>'<div>'+line.sort((a,b)=>Number(a.grid.split(':')[1])-Number(b.grid.split(':')[1])).map(p=>'<span>'+esc(p.name)+'</span>').join('')+'</div>').join('')+'</div>' : '';
+      return '<section><h2>'+esc(teams.find(t=>t.id===l.team)?.name)+' '+esc(l.formation)+'</h2>'+pitch+'<h3>Titulares</h3><ul>'+players(l.starters)+'</ul><h3>Reservas</h3><ul>'+players(l.substitutes)+'</ul></section>';
+    }).join('')+'</div>' : '<p>Escalações indisponíveis para esta partida.</p>';
+  }
+  const state = match.statusLabel || (match.status==='live' ? match.clock || 'Em jogo' : match.status==='final' ? 'Encerrado' : 'Agendado');
+  const markup = '<a href="'+competitionLink(match.league,match.date)+'">'+esc(leagueName(match.league))+'</a><h1 id="match-title">'+esc(teams.map(t=>t.name).join(' × '))+'</h1><div class="match-hero">'+teams.map((t,i)=>'<a href="'+teamLink(t,match)+'">'+teamLogo(t)+esc(t.name)+'</a>'+(i===0?'<strong>'+esc(match.score.map(n=>n ?? '–').join(' : '))+'</strong>':'')).join('')+'</div><p>'+esc([state,roundName(match.round),titleFormat.format(dateValue(match.date)),timeFormat.format(new Date(match.kickoff)),match.venue,match.referee].filter(Boolean).join(' · '))+'</p><div class="tabs" aria-label="Detalhes da partida">'+tabs.map(([id,label])=>'<button data-match-tab="'+id+'" class="'+(id===matchTab?'selected':'')+'" aria-pressed="'+(id===matchTab)+'">'+label+'</button>').join('')+'</div>'+(matchPageError ? '<p role="status">'+esc(matchPageError)+'</p>' : '')+content;
+  if (panel.dataset.html!==markup) { panel.innerHTML=markup; panel.dataset.html=markup; }
+}
+let matchRequest;
+async function loadMatch() {
+  if (!matchPageId || matchRequest) return;
+  matchRequest = true;
+  try {
+    const response = await fetch('/api/match?'+new URLSearchParams({id:matchPageId,date}));
+    const result = await response.json();
+    if (!response.ok) throw Error(result.error ?? 'Partida indisponível na fonte selecionada.');
+    matchSnapshot = result.match;
+    matchPageError = result.error;
+  } catch (error) { matchPageError = error.message; }
+  finally { matchRequest = false; renderMatchPage(); }
+}
 function renderCompetition(list) {
   const panel = $('competition-panel');
   panel.hidden = !competition;
@@ -115,6 +169,7 @@ function renderCompetition(list) {
   if (panel.dataset.html!==markup) { panel.innerHTML=markup; panel.dataset.html=markup; }
 }
 function render() {
+  renderMatchPage();
   const merged = agenda ? new Map(calendar.filter(m=>m.date!==date || !status.updated).map(m=>[m.id,m])) : new Map();
   for (const m of matches.values()) if (!competition || (m.league.id===competition.id && m.league.season===competition.season)) merged.set(m.id,m);
   const list = [...merged.values()].sort((a,b)=>Date.parse(a.kickoff)-Date.parse(b.kickoff));
@@ -122,7 +177,11 @@ function render() {
   const showFixtures = !competition || ['games','overview'].includes(competitionTab);
   $('matches').hidden = $('results-meta').hidden = !showFixtures;
   const live = [...matches.values()].filter(m=>m.status==='live').length;
-  $('heading').textContent = competition ? leagueName(list.find(m=>m.league.id===competition.id)?.league ?? competition) : agenda ? 'Agenda' : 'Partidas';
+  const team = teamId && list.flatMap(m=>[m.home,m.away]).find(t=>String(t.id)===teamId);
+  $('heading').textContent = teamId ? team?.name ?? 'Perfil da equipe' : competition ? leagueName(list.find(m=>m.league.id===competition.id)?.league ?? competition) : agenda ? 'Agenda' : 'Partidas';
+  const crest = $('profile-crest');
+  crest.innerHTML = team ? teamLogo(team) : '';
+  crest.hidden = !team;
   $('section-label').lastChild.textContent = competition ? ' CAMPEONATO' : agenda ? ' CALENDÁRIO' : ' PLACAR DO DIA';
   document.querySelectorAll('[data-agenda]').forEach(button=>button.setAttribute('aria-pressed',String(agenda&&!competition)));
   $('side-live').textContent=live;
@@ -152,6 +211,7 @@ function render() {
   $('round-filter').hidden=!competition || !rounds.length;
   const statusFilter = $('status-filter').value;
   const shown = list.filter(m=>(mode!=='live'||m.status==='live')&&(mode!=='favorites'||favorites.has(m.id))&&(!league||String(m.league.id)===league)
+    &&(!teamId||[m.home,m.away].some(t=>String(t.id)===teamId))
     &&(!competition||competitionTab==='games'||round||mode!=='all'||m.status==='live'||(m.date>=shift(date,-7)&&m.date<=shift(date,21)))
     &&(!statusFilter||m.status===statusFilter)&&(!round||String(m.round)===round)
     &&(!needle||[m.home.name,m.away.name,leagueName(m.league),m.league.name].some(n=>tidy(n).includes(needle))));
@@ -284,6 +344,7 @@ function openDate(next, reconnect=false) {
   stream.addEventListener('status',event=>{
     const firstUpdate = !status.updated;
     status={...status,...JSON.parse(event.data)};render();paintStatus();
+    if (matchPageId && date===today && (matches.get(matchPageId)?.status==='live' || !matchSnapshot)) void loadMatch();
     if (agenda && (firstUpdate || !calendarLoaded) && (status.limited || status.updated || status.error)) {
       if (status.limited) void loadCalendar();
       else setTimeout(()=>{if (date===next && agenda && !calendarLoaded) void loadCalendar();},6500);
@@ -321,6 +382,11 @@ document.addEventListener('click',event=>{
     render();
     $('competition-panel').querySelector('[aria-pressed="true"]')?.focus();
   }
+  if (button.dataset.matchTab) {
+    matchTab=button.dataset.matchTab;
+    renderMatchPage();
+    $('match-page').querySelector('[aria-pressed="true"]')?.focus();
+  }
   if (button.hasAttribute('data-settings')) $('settings').showModal();
   if (button.hasAttribute('data-date-today')) {
     agenda=false; competition=null; round=''; mode='all'; $('status-filter').value='';
@@ -349,7 +415,7 @@ document.addEventListener('click',event=>{
 document.addEventListener('submit',event=>{
   if (event.target.id!=='season-form') return;
   event.preventDefault();
-  location.href=competitionLink({...competition,season:Number($('season').value)},date);
+  location.href=competitionLink({...competition,season:Number($('season').value)},date)+(teamId?'&team='+encodeURIComponent(teamId):'');
 });
 $('prev').onclick=()=>openDate(shift(date,-1));
 $('next').onclick=()=>openDate(shift(date,1));
@@ -373,11 +439,20 @@ setInterval(()=>{
   if(next!==today){const follow=date===today;today=next;if(follow)openDate(today);else updateDates();}
 },30000);
 const params = new URLSearchParams(location.search);
+if (/^(?:api|open)-\d+$/.test(params.get('match') ?? '')) {
+  matchPageId=params.get('match');
+  $('match-page').parentElement.classList.add('match-page-active');
+}
 if (/^\d+$/.test(params.get('competition') ?? '') && /^20\d\d$/.test(params.get('season') ?? '')) {
   competition={id:Number(params.get('competition')),season:Number(params.get('season')),name:'Campeonato'};
   agenda=true;
+  if (/^\d+$/.test(params.get('team') ?? '')) {
+    teamId=params.get('team');
+    competitionTab='games';
+  }
 }
 const initialDate = params.get('date');
 openDate(initialDate && /^20\d\d-\d\d-\d\d$/.test(initialDate) && Number.isFinite(Date.parse(initialDate)) && shift(initialDate,0)===initialDate ? initialDate : today);
 if (competition) void loadCalendar();
+if (matchPageId) void loadMatch();
 

@@ -55,3 +55,13 @@
  .data-table { width:100%; border-collapse:collapse; margin-top:.75rem; font-size:.875rem; }
  .data-table :is(th,td) { text-align:left; padding:.65rem .45rem; border-bottom:1px solid var(--line); }
  [hidden] { display:none !important; }
+ .match-page-active > :not(#match-page) { display:none; }
+ #match-page > a, .detail-actions a, .match-hero a { color:inherit; text-decoration:underline; text-underline-offset:.22em; }
+ .match-hero, .detail-actions, .profile-title { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
+ .match-hero { justify-content:space-between; padding:1rem 0; border-block:1px solid var(--line); }
+ .match-hero a { display:grid; gap:.5rem; justify-items:center; flex:1; text-align:center; }
+ .match-hero strong { font-size:clamp(1.5rem,5vw,3rem); font-variant-numeric:tabular-nums; }
+ .match-hero .crest, .profile-title .crest { width:2.6rem; height:2.6rem; }
+ .lineup-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,225px),1fr)); gap:1rem; }
+ .pitch { display:grid; gap:1rem; padding:1rem .4rem; background:#143e2a; color:#fff; border:1px solid #71ad8a; }
+ .pitch div { display:flex; justify-content:space-evenly; gap:.25rem; text-align:center; font-size:.8rem; }
