@@ -29,6 +29,7 @@ let matches = new Map(), opened = new Set(), highlights = new Map(), arrivals = 
 let connected = false, initialized = false, status = {}, delivery = null;
 let agenda = false, competition = null, calendar = [], calendarRequest, calendarLoaded = false, round = '';
 let competitionTab = 'overview';
+let publishedStandings, standingsPending;
 let matchPageId, matchSnapshot, matchPageError, matchTab = 'events', teamId, matchContext, contextPending;
 const viewTitles = {home:'Central de futebol',today:'Jogos de hoje',live:'Ao vivo',upcoming:'Próximos jogos',results:'Resultados anteriores',competitions:'Campeonatos',teams:'Times',favorites:'Favoritos'};
 let view = 'home', range = 7;
@@ -54,9 +55,9 @@ function saveEntry(key, entry) {
   else savedEntries.delete(key);
   try { localStorage.setItem('placar360-saved-links',JSON.stringify([...savedEntries.values()])); } catch {}
 }
-const leagueNames = {71:'Brasileirão Série A',72:'Brasileirão Série B',73:'Copa do Brasil',75:'Série C',475:'Copa do Nordeste',13:'Libertadores',11:'Sul-Americana',2:'Champions League',3:'Europa League',39:'Premier League',78:'Bundesliga',79:'2. Bundesliga',140:'La Liga',1:'Copa do Mundo'};
+const leagueNames = {71:'Brasileirão Série A',72:'Brasileirão Série B',73:'Copa do Brasil',75:'Série C',475:'Copa do Nordeste',13:'Copa Libertadores da América',11:'Sul-Americana',2:'Champions League',3:'Europa League',39:'Premier League',78:'Bundesliga',79:'2. Bundesliga',140:'La Liga',1:'Copa do Mundo'};
 const teamLogo = team => team.logo ? '<img class="crest" loading="lazy" decoding="async" width="23" height="23" alt="" src="'+esc(team.logo)+'">' : '<span class="crest crest-fallback">'+esc(team.name.slice(0,2).toUpperCase())+'</span>';
-const leagueName = item=> item.id===13 ? 'Copa Libertadores da América' : leagueNames[item.id] ?? item.name;
+const leagueName = item=> leagueNames[item.id] ?? item.name;
 const roundName = value => typeof value==='number' ? 'Rodada '+value : (value ?? '').replace(/^Regular Season - /i,'Rodada ');
 const shortDate = new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short',timeZone:'UTC'});
 const scoreTotal = score => score.reduce((sum,goals)=>sum+(goals ?? 0),0);
@@ -76,7 +77,7 @@ function rowHTML(m) {
   const clock = live ? m.statusLabel || m.clock || 'Em jogo' : m.status==='final' ? 'Encerrado' : m.statusLabel || timeFormat.format(new Date(m.kickoff));
   const fresh = highlights.get(m.id);
   const teams = [m.home,m.away];
-  const dateText = agenda ? '<small>'+esc(shortDate.format(dateValue(m.date)))+'</small>' : '';
+  const dateText = agenda ? '<small>'+esc([shortDate.format(dateValue(m.date)),m.leg].filter(Boolean).join(' · '))+'</small>' : '';
   return '<div class="match-main"><span class="match-time '+(live?'live':'')+'">'+(live?'<i></i> ':'')+esc(clock)+dateText+'</span><button class="match-details" data-action="details" aria-expanded="'+isOpen+'"><span class="teams">'+teams.map(t=>'<span>'+teamLogo(t)+esc(t.name)+'</span>').join('')+'</span><span class="scores">'+m.score.map((s,i)=>'<b>'+esc(s ?? '–')+(m.penalties[i]!==null ? '<small> ('+esc(m.penalties[i])+')</small>' : '')+'</b>').join('')+'</span>'+icon('down')+'</button><button class="favorite '+(saved?'saved':'')+'" data-action="favorite" aria-pressed="'+saved+'" aria-label="'+(saved?'Remover dos favoritos':'Favoritar')+'">'+icon('star')+'</button></div>'+(isOpen ? '<div class="timeline"><div class="detail-actions"><a href="'+matchLink(m)+'">Abrir partida</a>'+teams.map(t=>'<a href="'+teamLink(t,m)+'">'+esc(t.name)+'</a>').join('')+'</div><h3>Linha do tempo</h3>'+m.events.map(e=>eventHTML(e,m)).join('')+(!m.detailed ? '<p>Detalhes limitados aos eventos informados pela fonte.</p>' : !m.events.length ? '<p>Nenhum evento registrado.</p>' : '')+'</div>' : '')+(fresh ? '<span class="fresh-label">'+esc(['Gol',fresh.player,fresh.minute===null ? '' : fresh.minute+(fresh.extra?'+'+fresh.extra:'')+'′'].filter(Boolean).join(' · '))+'</span>' : '');
 }
 const matchNodes = new Map(), groupNodes = new Map();
@@ -149,6 +150,20 @@ async function loadMatch() {
   } catch (error) { matchPageError = error.message; }
   finally { matchRequest = false; renderMatchPage(); }
 }
+async function loadStandings() {
+  if (![71,13].includes(competition?.id) || standingsPending || publishedStandings?.groups?.length) return;
+  standingsPending=true;
+  publishedStandings=null;
+  render();
+  try {
+    const response = await fetch('/api/standings?'+new URLSearchParams({league:competition.id,season:competition.season}));
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error);
+    publishedStandings=data;
+  } catch {
+    publishedStandings={error:'Classificação temporariamente indisponível.'};
+  } finally { standingsPending=false; render(); }
+}
 function renderCompetition(list) {
   const panel = $('competition-panel');
   panel.hidden = !competition;
@@ -162,7 +177,13 @@ function renderCompetition(list) {
     const upcoming = list.filter(m=>m.status==='scheduled' && m.kickoff && Date.parse(m.kickoff)>=Date.now());
     content = '<div class="competition-summary">'+[[final.at(-1),'Último resultado'],[live[0] ?? upcoming[0],live.length?'Em andamento':'Próxima partida']].map(([match,label])=>match ? '<div><small>'+label+'</small><strong>'+esc(match.home.name)+' × '+esc(match.away.name)+'</strong><span>'+esc(roundName(match.round))+'</span></div>' : '').join('')+'</div>';
   }
-  if (competitionTab==='table') {
+  if (competitionTab==='table' && [71,13].includes(competition.id)) {
+    const groups = publishedStandings?.groups ?? [];
+    content = groups.length ? '<p class="calendar-note">'+esc(publishedStandings.error ?? 'Classificação publicada pela ESPN')+'</p>'+groups.map(group=>'<table class="data-table"><caption>'+esc(competition.id===71 ? 'Tabela geral' : group.name)+'</caption><thead><tr><th scope="col">Clube</th><th scope="col">J</th><th scope="col">SG</th><th scope="col">Pts</th></tr></thead><tbody>'+group.rows.map(row=>'<tr><th scope="row">'+row.rank+' · '+esc(row.name)+'</th><td>'+row.played+'</td><td>'+row.difference+'</td><td>'+row.points+'</td></tr>').join('')+'</tbody></table>').join('')
+      : '<p class="calendar-note" role="status">'+esc(standingsPending?'Consultando a classificação…':publishedStandings?.error ?? 'Classificação indisponível para esta temporada.')+'</p>';
+  } else if (competitionTab==='table' && competition.id===73) {
+    content = '<p class="calendar-note">A Copa do Brasil é eliminatória. Consulte os confrontos por fase na aba Jogos.</p>';
+  } else if (competitionTab==='table') {
     const regular = [39,61,71,72,78,79,135,140].includes(competition.id);
     const standings = new Map();
     if (regular) for (const match of list) {
@@ -490,6 +511,7 @@ document.addEventListener('click',event=>{
   if (button.dataset.competitionTab) {
     competitionTab=button.dataset.competitionTab;
     render();
+    if (competitionTab==='table') void loadStandings();
     $('competition-panel').querySelector('[aria-pressed="true"]')?.focus();
   }
   if (button.dataset.matchTab) {

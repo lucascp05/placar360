@@ -103,9 +103,25 @@ createServer(async (req,res)=>{
     res.end(asset.body);
     return;
   }
-  if (!['/api/stream','/api/status','/api/calendar','/api/match'].includes(url.pathname)) { res.writeHead(404).end(); return; }
+  if (!['/api/stream','/api/status','/api/calendar','/api/match','/api/standings'].includes(url.pathname)) { res.writeHead(404).end(); return; }
   const date = url.searchParams.get('date') ?? dateOf(Date.now());
   if (!validDay(date)) { res.writeHead(400).end(); return; }
+  if (url.pathname==='/api/standings') {
+    const id = Number(url.searchParams.get('league'));
+    const season = Number(url.searchParams.get('season'));
+    if (![71,13].includes(id) || !Number.isInteger(season) || season<2000 || season>2099) {
+      res.writeHead(400).end();
+      return;
+    }
+    res.setHeader('Content-Type','application/json; charset=utf-8');
+    try {
+      const result = await source.standings(id,season);
+      res.end(JSON.stringify({groups:result.value,cached:result.cached,error:result.error}));
+    } catch {
+      res.writeHead(503).end(JSON.stringify({error:'Classificação temporariamente indisponível'}));
+    }
+    return;
+  }
   if (url.pathname==='/api/match') {
     const id = url.searchParams.get('id') ?? '';
     if (!/^(?:open|api|espn)-\d+$/.test(id)) { res.writeHead(400).end(); return; }

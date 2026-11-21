@@ -197,6 +197,7 @@ export function createSource(key, limit) {
     name:key ? 'API-Football' : 'OpenLigaDB',
     leagues:key ? southAmericanLeagues : [...openLeagues,...southAmericanLeagues],
     supplemental:key ? null : 'ESPN',
+    standings:(id,season)=>espn.standings(id,season),
     async initialize() {
       return (await Promise.all(openFeeds.map(feed=>feed.initialize()))).flat();
     },
