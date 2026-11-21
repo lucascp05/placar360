@@ -1,6 +1,6 @@
 ﻿# Placar360
 
-O Placar360 é uma central de futebol em português para acompanhar partidas e consultar o calendário sem sair do placar. A interface atende desktop e celular e apresenta datas e horários de Brasília.
+O Placar360 é uma central de futebol em português para acompanhar placares, consultar resultados e explorar o calendário. A interface tem navegação lateral no desktop e barra inferior no celular. As datas e os horários seguem o fuso de Brasília.
 
 ## Como executar
 
@@ -14,10 +14,12 @@ Abra [http://127.0.0.1:3600/](http://127.0.0.1:3600/). A aplicação escuta na i
 
 ## O que é possível acompanhar
 
-- Consulte partidas por data, campeonato, equipe, status e favoritos.
-- Use a agenda para consultar próximas partidas de um clube e abra a página de um campeonato pelo seu nome. Nela é possível filtrar a temporada por rodada, quando a fonte disponibiliza essa informação.
-- Abra o placar de uma partida para ver sua linha do tempo. O painel de eventos reúne os acontecimentos informados para o dia selecionado.
-- Ative o som de gol no cabeçalho. Em Configurações, escolha entre os temas claro e escuro e entre as visualizações padrão e compacta. Favoritos, tema e densidade ficam neste navegador.
+- A tela inicial reúne jogos do dia, partidas ao vivo, próximos jogos e resultados recentes. O histórico permite escolher uma data e consultar os resultados dos sete dias até ela.
+- O calendário futuro tem atalhos para amanhã, sete dias e 30 dias. Filtre por campeonato, equipe e status.
+- Na página de um campeonato, selecione a temporada, abra a aba Jogos para percorrer o calendário completo e filtre por rodada ou fase. As abas Classificação e Estatísticas exibem tabelas calculadas a partir da agenda disponível.
+- Expanda um jogo para consultar os acontecimentos e abrir sua página. Ela mostra local, árbitro, estatísticas, escalações, campo tático e confrontos da temporada quando os dados existem.
+- Abra um perfil de time pelo nome da equipe. Consulte sua agenda na competição selecionada, próximas partidas e os resultados usados para mostrar a forma recente.
+- Pesquise equipes, campeonatos e partidas na janela carregada. Salve links de partidas, times e campeonatos em Favoritos. Os links e as preferências de tema e densidade ficam no navegador. O cabeçalho permite ativar som de gol.
 
 ## Fontes avaliadas
 
@@ -48,7 +50,7 @@ Preencha a chave para ativar a integração. O servidor usa a mesma cota para pl
 
 O servidor compartilha os dados por dia entre conexões e prioriza as consultas de partidas em andamento. A OpenLigaDB recebe consultas da rodada ativa em intervalos de pelo menos 30 segundos e a temporada é armazenada em disco. Com a API-Football, o servidor alterna consultas por data e por identificadores de partidas próximas do início ou em andamento, quando o volume cabe em uma consulta.
 
-O navegador recebe um estado inicial por Server-Sent Events e aplica inclusões, alterações e remoções de partidas sem recarregar a página. Uma reconexão recebe outro estado completo. Se a fonte falhar, o último estado disponível pode continuar visível enquanto o servidor adia as próximas tentativas. A agenda usa a fonte selecionada e combina seus resultados com o estado mais recente dos placares abertos.
+O navegador recebe um estado inicial por Server-Sent Events e aplica inclusões, alterações e remoções de partidas sem recarregar a página. Uma reconexão recebe outro estado completo. Se a fonte falhar, o último estado disponível pode continuar visível enquanto o servidor adia as próximas tentativas. A agenda combina os resultados da fonte com o estado mais recente dos placares abertos. As temporadas são carregadas sob demanda e as consultas idênticas podem compartilhar o resultado. Detalhes de partidas encerradas na API-Football ficam em memória por até um dia, sujeitos ao limite do cache.
 
 O painel informa tempos de coleta, processamento e entrega local. A resposta HTTP da fonte mede somente a consulta. O atraso entre o acontecimento em campo e sua disponibilização pela fonte é desconhecido.
 
@@ -58,12 +60,13 @@ O painel informa tempos de coleta, processamento e entrega local. A resposta HTT
 - `server.js` configura o cache, as rotas HTTP e o canal SSE.
 - `public/` contém a interface.
 - `test/` e `browser-check.mjs` verificam a normalização e os fluxos da aplicação.
+- `docs/backlog.md` registra a auditoria e as entregas incrementais.
 
 ## Testes
 
-Execute `npm test` para verificar fuso, normalização, deduplicação, correções, cache do calendário e cota compartilhada. O teste de leitura de uma temporada real usa o cache local se disponível.
+Execute `npm test` para verificar fuso, normalização, deduplicação, correções, cache de agenda e detalhes históricos, cota compartilhada e falhas da fonte. O teste de leitura de uma temporada real usa o cache local se disponível.
 
-Com o servidor aberto e um Chrome isolado com depuração local na porta 9338, execute `node browser-check.mjs`. O script verifica navegação, histórico, calendário por rodada, busca, favoritos, som, temas, densidade, larguras móveis, reconexão do SSE e consultas locais concorrentes. Defina `APP_URL` para testar em outra porta. As capturas são gravadas no diretório temporário.
+Com o servidor aberto e um Chrome isolado com depuração local na porta 9338, execute `node browser-check.mjs`. O roteiro usa o cache real de Bundesliga e verifica navegação, histórico, detalhes, perfis, calendário por rodada e por intervalo, busca, favoritos, som, temas, densidade, larguras móveis, reconexão do SSE e consultas locais concorrentes. Defina `APP_URL` para testar em outra porta. As capturas são gravadas no diretório temporário.
 
 ## Capturas
 
@@ -73,4 +76,5 @@ Com o servidor aberto e um Chrome isolado com depuração local na porta 9338, e
 
 - A cobertura padrão depende da edição comunitária. Jogos sem atualização de placar e sem uma fase informada podem continuar aparecendo como agendados.
 - A API-Football exige uma chave para confirmar cobertura, temporadas acessíveis e eventos de cada competição. A integração seleciona uma fonte por instância e usa o último estado disponível em caso de falha.
-- O calendário geral consulta uma janela em torno da data selecionada. A página de competição oferece a temporada e permite explorar suas rodadas.
+- A classificação calculada pode divergir da oficial devido a regras de desempate, sanções e cobertura parcial. A artilharia inclui os autores que constam da agenda. O perfil de clube usa a temporada e a competição selecionadas. Elenco completo depende de integração adicional.
+- A busca consulta partidas e times da janela carregada. Nas competições eliminatórias, os filtros seguem os agrupamentos publicados pelo fornecedor. A disponibilidade de jogos de ida e volta depende da estrutura do calendário da fonte.
