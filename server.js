@@ -100,7 +100,8 @@ createServer(async (req,res)=>{
   res.setHeader('X-Placar360-Frontend',frontendVersion);
   res.setHeader('Content-Security-Policy',"default-src 'self'; img-src 'self' https:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'");
   if (req.method!=='GET') { res.writeHead(405).end(); return; }
-  const asset = assets.get(url.pathname);
+  const matchRoute = /^\/partidas\/(?:api|open|espn)-\d+$/.test(url.pathname);
+  const asset = assets.get(matchRoute ? '/' : url.pathname);
   if (asset) {
     res.writeHead(200,{'Content-Type':asset.type+'; charset=utf-8','Cache-Control':'no-cache'});
     res.end(asset.body);

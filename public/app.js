@@ -25,12 +25,12 @@ const monthFormat = new Intl.DateTimeFormat('pt-BR',{month:'short',timeZone:'UTC
 const dateValue = date=>new Date(date+'T12:00:00Z');
 const shift = (date,n)=>new Date(dateValue(date).getTime()+n*86400000).toISOString().slice(0,10);
 let today = dayFormat.format(new Date()), date = today, mode = 'all', league = '', query = '', stream;
-let matches = new Map(), opened = new Set(), highlights = new Map(), arrivals = new Map(), sound = false, audio;
+let matches = new Map(), highlights = new Map(), arrivals = new Map(), sound = false, audio;
 let connected = false, initialized = false, status = {}, delivery = null;
 let agenda = false, competition = null, calendar = [], calendarRequest, calendarQuery, calendarLoaded = false, round = '';
 let competitionTab = 'overview', competitionCatalog = [];
 let publishedStandings, standingsPending;
-let matchPageId, matchSnapshot, matchPageError, matchTab = 'events', teamId, matchContext, contextPending;
+let matchPageId, matchSnapshot, matchPageError, matchTab = 'summary', teamId, matchContext, contextPending;
 const viewTitles = {home:'Central de futebol',today:'Jogos de hoje',live:'Ao vivo',upcoming:'Próximos jogos',results:'Resultados anteriores',competitions:'Campeonatos',teams:'Times',favorites:'Favoritos'};
 let view = 'home', range = 7;
 const preferences = {theme:'dark',density:'normal'};
@@ -61,7 +61,7 @@ const leagueName = item=> leagueNames[item.id] ?? item.name;
 const roundName = value => typeof value==='number' ? 'Rodada '+value : (value ?? '').replace(/^Regular Season - /i,'Rodada ');
 const shortDate = new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short',timeZone:'UTC'});
 const scoreTotal = score => score.reduce((sum,goals)=>sum+(goals ?? 0),0);
-const matchLink = m => '/?match='+encodeURIComponent(m.id)+'&date='+m.date;
+const matchLink = m => '/partidas/'+encodeURIComponent(m.id)+'?date='+m.date;
 const teamLink = (team,m) => competitionLink(m.league,m.date)+'&team='+encodeURIComponent(team.id);
 const legacyDetails = {'Normal Goal':'Gol','Own Goal':'Gol contra',Penalty:'Pênalti convertido','Missed Penalty':'Pênalti perdido','Yellow Card':'Cartão amarelo','Red Card':'Cartão vermelho','Second Yellow card':'Segundo amarelo','Goal cancelled':'Gol anulado','Goal confirmed':'Gol confirmado','Penalty confirmed':'Pênalti confirmado','Penalty cancelled':'Pênalti cancelado'};
 function eventHTML(event, match, compact=false) {
@@ -73,12 +73,12 @@ function eventHTML(event, match, compact=false) {
   return '<div class="event"><span class="event-icon '+eventClass+'">'+icon(symbol)+'</span><div><strong>'+esc(type)+(event.player ? ' · '+esc(event.player) : '')+'</strong><small>'+esc([compact ? match.home.name+' × '+match.away.name : side?.name,note].filter(Boolean).join(' · '))+'</small></div><time>'+esc(event.minute===null ? '' : event.minute+(event.extra ? '+'+event.extra : '')+'′')+'</time></div>';
 }
 function rowHTML(m) {
-  const isOpen = opened.has(m.id), saved = favorites.has(m.id), live = m.status==='live';
+  const saved = favorites.has(m.id), live = m.status==='live';
   const clock = live ? m.statusLabel || m.clock || 'Em jogo' : m.status==='final' ? 'Encerrado' : m.statusLabel || timeFormat.format(new Date(m.kickoff));
   const fresh = highlights.get(m.id);
   const teams = [m.home,m.away];
   const dateText = agenda ? '<small>'+esc([shortDate.format(dateValue(m.date)),m.leg].filter(Boolean).join(' · '))+'</small>' : '';
-  return '<div class="match-main"><span class="match-time '+(live?'live':'')+'">'+(live?'<i></i> ':'')+esc(clock)+dateText+'</span><button class="match-details" data-action="details" aria-expanded="'+isOpen+'"><span class="teams">'+teams.map(t=>'<span>'+teamLogo(t)+esc(t.name)+'</span>').join('')+'</span><span class="scores">'+m.score.map((s,i)=>'<b>'+esc(s ?? '–')+(m.penalties[i]!==null ? '<small> ('+esc(m.penalties[i])+')</small>' : '')+'</b>').join('')+'</span>'+icon('down')+'</button><button class="favorite '+(saved?'saved':'')+'" data-action="favorite" aria-pressed="'+saved+'" aria-label="'+(saved?'Remover dos favoritos':'Favoritar')+'">'+icon('star')+'</button></div>'+(isOpen ? '<div class="timeline"><div class="detail-actions"><a href="'+matchLink(m)+'">Abrir partida</a>'+teams.map(t=>'<a href="'+teamLink(t,m)+'">'+esc(t.name)+'</a>').join('')+'</div><h3>Linha do tempo</h3>'+m.events.map(e=>eventHTML(e,m)).join('')+(!m.detailed ? '<p>Detalhes limitados aos eventos informados pela fonte.</p>' : !m.events.length ? '<p>Nenhum evento registrado.</p>' : '')+'</div>' : '')+(fresh ? '<span class="fresh-label">'+esc(['Gol',fresh.player,fresh.minute===null ? '' : fresh.minute+(fresh.extra?'+'+fresh.extra:'')+'′'].filter(Boolean).join(' · '))+'</span>' : '');
+  return '<div class="match-main"><span class="match-time '+(live?'live':'')+'">'+(live?'<i></i> ':'')+esc(clock)+dateText+'</span><a class="match-details" href="'+matchLink(m)+'" data-open-match><span class="teams">'+teams.map(t=>'<span>'+teamLogo(t)+esc(t.name)+'</span>').join('')+'</span><span class="scores">'+m.score.map((s,i)=>'<b>'+esc(s ?? '–')+(m.penalties[i]!==null ? '<small> ('+esc(m.penalties[i])+')</small>' : '')+'</b>').join('')+'</span>'+icon('right')+'</a><button class="favorite '+(saved?'saved':'')+'" data-action="favorite" aria-pressed="'+saved+'" aria-label="'+(saved?'Remover dos favoritos':'Favoritar')+'">'+icon('star')+'</button></div>'+(fresh ? '<span class="fresh-label">'+esc(['Gol',fresh.player,fresh.minute===null ? '' : fresh.minute+(fresh.extra?'+'+fresh.extra:'')+'′'].filter(Boolean).join(' · '))+'</span>' : '');
 }
 const matchNodes = new Map(), groupNodes = new Map();
 const tidy = value => value.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase();
@@ -98,10 +98,11 @@ function renderMatchPage() {
     return;
   }
   const teams = [match.home,match.away];
-  const tabs = [['events','Acontecimentos'],['numbers','Estatísticas'],['lineups','Escalações'],['context','Confrontos']];
+  const tabs = [['summary','Resumo'],['events','Linha do tempo'],['numbers','Estatísticas'],['lineups','Escalações'],['context','Confrontos']];
   let content;
-  if (matchTab==='events') {
-    content = match.events.map(event=>eventHTML(event,match)).join('')+
+  if (matchTab==='events' || matchTab==='summary') {
+    const events = matchTab==='summary' ? match.events.filter(event=>['Gol','Cart?o','VAR'].includes(event.kind)).slice(-4) : match.events;
+    content = events.map(event=>eventHTML(event,match)).join('')+
       (!match.detailed ? '<p>Eventos limitados à cobertura da fonte.</p>' : !match.events.length ? '<p>Nenhum evento registrado.</p>' : '');
   }
   if (matchTab==='numbers') {
@@ -122,7 +123,7 @@ function renderMatchPage() {
     content = opponents?.length ? '<h2>Encontros nesta temporada</h2><ul>'+opponents.map(m=>'<li><a href="'+matchLink(m)+'">'+esc([shortDate.format(dateValue(m.date)),m.home.name,m.score.map(n=>n ?? '–').join(' : '),m.away.name].join(' · '))+'</a></li>').join('')+'</ul>' : '<p role="status">'+(contextPending?'Consultando a temporada…':'Nenhum confronto anterior disponível nesta temporada.')+'</p>';
   }
   const state = match.statusLabel || (match.status==='live' ? match.clock || 'Em jogo' : match.status==='final' ? 'Encerrado' : 'Agendado');
-  const markup = '<a href="'+competitionLink(match.league,match.date)+'">'+esc(leagueName(match.league))+'</a><h1 id="match-title">'+esc(teams.map(t=>t.name).join(' × '))+'</h1><div class="match-hero">'+teams.map((t,i)=>'<a href="'+teamLink(t,match)+'">'+teamLogo(t)+esc(t.name)+'</a>'+(i===0?'<strong>'+esc(match.score.map(n=>n ?? '–').join(' : '))+'</strong>':'')).join('')+'</div><p>'+esc([state,roundName(match.round),titleFormat.format(dateValue(match.date)),timeFormat.format(new Date(match.kickoff)),match.venue,match.referee].filter(Boolean).join(' · '))+'</p><div class="tabs" aria-label="Detalhes da partida">'+tabs.map(([id,label])=>'<button data-match-tab="'+id+'" class="'+(id===matchTab?'selected':'')+'" aria-pressed="'+(id===matchTab)+'">'+label+'</button>').join('')+'</div>'+(matchPageError ? '<p role="status">'+esc(matchPageError)+'</p>' : '')+content;
+  const markup = '<div class="detail-actions"><a href="/?date='+match.date+'" data-return-match>Voltar aos jogos</a><a href="'+competitionLink(match.league,match.date)+'">'+esc(leagueName(match.league))+'</a></div><h1 id="match-title">'+esc(teams.map(t=>t.name).join(' × '))+'</h1><div class="match-hero">'+teams.map((t,i)=>'<a href="'+teamLink(t,match)+'">'+teamLogo(t)+esc(t.name)+'</a>'+(i===0?'<strong>'+esc(match.score.map(n=>n ?? '–').join(' : '))+'</strong>':'')).join('')+'</div><p>'+esc([state,roundName(match.round),titleFormat.format(dateValue(match.date)),timeFormat.format(new Date(match.kickoff)),match.venue,match.referee].filter(Boolean).join(' · '))+'</p><div class="match-actions"><button class="utility" data-favorite-match aria-pressed="'+favorites.has(match.id)+'">'+(favorites.has(match.id)?'Remover dos favoritos':'Favoritar')+'</button><button class="utility" data-copy-match>Copiar link</button></div><div class="tabs" aria-label="Detalhes da partida">'+tabs.map(([id,label])=>'<button data-match-tab="'+id+'" class="'+(id===matchTab?'selected':'')+'" aria-pressed="'+(id===matchTab)+'">'+label+'</button>').join('')+'</div>'+(matchPageError ? '<p role="status">'+esc(matchPageError)+'</p>' : '')+content;
   if (panel.dataset.html!==markup) { panel.innerHTML=markup; panel.dataset.html=markup; }
 }
 let matchRequest;
@@ -454,7 +455,7 @@ function openDate(next, reconnect=false) {
     calendarRequest?.abort();
     calendar = []; calendarLoaded = false;
     $('calendar-note').hidden = true;
-    date=next; league=''; status={}; matches.clear(); opened.clear(); arrivals.clear(); highlights.clear();
+    date=next; league=''; status={}; matches.clear(); arrivals.clear(); highlights.clear();
     initialized=false; delivery=null;
     updateDates(); render();
     if (agenda) void loadCalendar();
@@ -507,6 +508,15 @@ function openDate(next, reconnect=false) {
   });
 }
 document.addEventListener('click',event=>{
+  const anchor=event.target.closest('a');
+  if (!matchPageId && anchor?.pathname.startsWith('/partidas/') && anchor.origin===location.origin) {
+    history.replaceState({returnFromMatch:true,date,view,mode,league,query,round,range,competitionTab,agenda,
+      status:$('status-filter').value,team:$('team-filter').value},'');
+  }
+  if (anchor?.hasAttribute('data-return-match') && document.referrer && new URL(document.referrer).origin===location.origin && !new URL(document.referrer).pathname.startsWith('/partidas/')) {
+    event.preventDefault();
+    history.back();
+  }
   const button=event.target.closest('button');
   if (!button) return;
   const {mode:nextMode,date:nextDate,action,nearby}=button.dataset;
@@ -534,6 +544,20 @@ document.addEventListener('click',event=>{
     if (competitionTab==='table') void loadStandings();
     $('competition-panel').querySelector('[aria-pressed="true"]')?.focus();
   }
+  if (button.hasAttribute('data-favorite-match')) {
+    const match=matches.get(matchPageId) ?? matchSnapshot;
+    if (match && favorites.delete(match.id)) saveEntry(match.id);
+    else if (match) {
+      favorites.add(match.id);
+      saveEntry(match.id,{href:matchLink(match),label:match.home.name+' × '+match.away.name});
+    }
+    try {localStorage.setItem('placar360-favorites',JSON.stringify([...favorites]));} catch {}
+    renderMatchPage();
+  }
+  if (button.hasAttribute('data-copy-match')) {
+    if (navigator.clipboard) void navigator.clipboard.writeText(location.href).then(()=>{button.textContent='Link copiado';},()=>{button.textContent='Selecione o endereço na barra do navegador';});
+    else button.textContent='Selecione o endereço na barra do navegador';
+  }
   if (button.dataset.matchTab) {
     matchTab=button.dataset.matchTab;
     renderMatchPage();
@@ -559,8 +583,7 @@ document.addEventListener('click',event=>{
   if (nearby!==undefined) openDate(nearby==='0' ? today : nearby);
   if (action) {
     const id=button.closest('[data-match]').dataset.match;
-    const set=action==='favorite'?favorites:opened;
-    if(set.has(id)) set.delete(id); else set.add(id);
+    if(favorites.has(id)) favorites.delete(id); else favorites.add(id);
     if(action==='favorite') { try {localStorage.setItem('placar360-favorites',JSON.stringify([...favorites]));} catch {} }
     if(action==='favorite') {
       const match=matches.get(id) ?? calendar.find(m=>m.id===id);
@@ -607,8 +630,10 @@ if (['live','favorites'].includes(view)) mode=view;
 document.querySelectorAll('[data-view]').forEach(link=>{
   if (link.dataset.view===view && !params.has('competition') && !params.has('match')) link.setAttribute('aria-current','page');
 });
-if (/^(?:api|open|espn)-\d+$/.test(params.get('match') ?? '')) {
-  matchPageId=params.get('match');
+const routeMatch = /^\/partidas\/((?:api|open|espn)-\d+)$/.exec(location.pathname)?.[1] ?? params.get('match');
+if (/^(?:api|open|espn)-\d+$/.test(routeMatch ?? '')) {
+  matchPageId=routeMatch;
+  document.body.classList.add('show-match-page');
   $('match-page').parentElement.classList.add('match-page-active');
 }
 if (/^\d+$/.test(params.get('competition') ?? '') && /^20\d\d$/.test(params.get('season') ?? '')) {
@@ -620,8 +645,15 @@ if (/^\d+$/.test(params.get('competition') ?? '') && /^20\d\d$/.test(params.get(
     competitionTab='games';
   }
 }
-const initialDate = params.get('date');
+const restored = !matchPageId && history.state?.returnFromMatch ? history.state : null;
+const initialDate = restored?.date ?? params.get('date');
 openDate(initialDate && /^20\d\d-\d\d-\d\d$/.test(initialDate) && Number.isFinite(Date.parse(initialDate)) && shift(initialDate,0)===initialDate ? initialDate : view==='upcoming' ? shift(today,1) : view==='results' ? shift(today,-1) : today);
+if (restored) {
+  ({view,mode,league,query,round,range,competitionTab,agenda}=restored);
+  $('status-filter').value=restored.status;
+  $('search').value=query;
+  render();
+}
 if (matchPageId) void loadMatch();
 void loadCompetitionCatalog();
 

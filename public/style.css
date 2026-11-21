@@ -56,6 +56,12 @@
  .data-table :is(th,td) { text-align:left; padding:.65rem .45rem; border-bottom:1px solid var(--line); }
  [hidden] { display:none !important; }
  .match-page-active > :not(#match-page) { display:none; }
+ .show-match-page .workspace { grid-template-columns:minmax(0,840px); justify-content:center; }
+ .show-match-page .workspace > :is(.sidebar,.feed) { display:none; }
+ .show-match-page #match-title { font-size:clamp(1.9rem,5.5vw,3.5rem); letter-spacing:-.05em; line-height:1.08; margin-block:1.2rem; }
+ .show-match-page .match-hero { background:var(--raised); border:1px solid var(--line); padding:1.25rem .6rem; }
+ .show-match-page #match-page > p { margin-block:.75rem; color:var(--muted); }
+ .match-actions { display:flex; gap:.5rem; flex-wrap:wrap; margin-block:.75rem; }
  #match-page > a, .detail-actions a, .match-hero a { color:inherit; text-decoration:underline; text-underline-offset:.22em; }
  .match-hero, .detail-actions, .profile-title { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
  .match-hero { justify-content:space-between; padding:1rem 0; border-block:1px solid var(--line); }
