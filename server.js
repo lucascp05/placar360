@@ -1,5 +1,6 @@
 ﻿import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { createSource, dateOf, priority } from './source.js';
 
@@ -13,6 +14,7 @@ const shiftDay = (date,n) => new Date(Date.parse(date)+n*86400000).toISOString()
 const assets = new Map(await Promise.all([
   ['/','index.html','text/html'],['/app.js','app.js','text/javascript'],['/style.css','style.css','text/css']
 ].map(async ([route,file,type])=>[route,{body:await readFile(new URL('./public/'+file,import.meta.url)),type}])));
+const frontendVersion = createHash('sha256').update(assets.get('/app.js').body).digest('hex').slice(0,12);
 let busy = false;
 
 function getDay(date) {
@@ -95,12 +97,18 @@ createServer(async (req,res)=>{
   const url = new URL(req.url,'http://localhost');
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Referrer-Policy','no-referrer');
+  res.setHeader('X-Placar360-Frontend',frontendVersion);
   res.setHeader('Content-Security-Policy',"default-src 'self'; img-src 'self' https:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'");
   if (req.method!=='GET') { res.writeHead(405).end(); return; }
   const asset = assets.get(url.pathname);
   if (asset) {
     res.writeHead(200,{'Content-Type':asset.type+'; charset=utf-8','Cache-Control':'no-cache'});
     res.end(asset.body);
+    return;
+  }
+  if (url.pathname==='/api/competitions') {
+    res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-cache'});
+    res.end(JSON.stringify({leagues:source.leagues}));
     return;
   }
   if (!['/api/stream','/api/status','/api/calendar','/api/match','/api/standings'].includes(url.pathname)) { res.writeHead(404).end(); return; }

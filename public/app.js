@@ -28,7 +28,7 @@ let today = dayFormat.format(new Date()), date = today, mode = 'all', league = '
 let matches = new Map(), opened = new Set(), highlights = new Map(), arrivals = new Map(), sound = false, audio;
 let connected = false, initialized = false, status = {}, delivery = null;
 let agenda = false, competition = null, calendar = [], calendarRequest, calendarQuery, calendarLoaded = false, round = '';
-let competitionTab = 'overview';
+let competitionTab = 'overview', competitionCatalog = [];
 let publishedStandings, standingsPending;
 let matchPageId, matchSnapshot, matchPageError, matchTab = 'events', teamId, matchContext, contextPending;
 const viewTitles = {home:'Central de futebol',today:'Jogos de hoje',live:'Ao vivo',upcoming:'Próximos jogos',results:'Resultados anteriores',competitions:'Campeonatos',teams:'Times',favorites:'Favoritos'};
@@ -258,6 +258,19 @@ function renderExplore(leagues,list) {
   panel.hidden = !markup;
   if (panel.dataset.html!==markup) { panel.innerHTML=markup; panel.dataset.html=markup; }
 }
+async function loadCompetitionCatalog() {
+  try {
+    const response = await fetch('/api/competitions',{signal:AbortSignal.timeout(5000)});
+    if (!response.ok) return;
+    const data = await response.json();
+    if (!Array.isArray(data.leagues)) return;
+    competitionCatalog = data.leagues;
+    render();
+  } catch {
+    // The scoreboard snapshot also carries the catalog.
+  }
+}
+
 function render() {
   renderMatchPage();
   const merged = agenda ? new Map(calendar.filter(m=>m.date!==date || !status.updated).map(m=>[m.id,m])) : new Map();
@@ -282,7 +295,7 @@ function render() {
   });
   const leagues = new Map(list.map(m=>[String(m.league.id),m.league]));
   const season = Number(date.slice(0,4))-(Number(date.slice(5,7))<7?1:0);
-  for (const l of status.leagues ?? []) {
+  for (const l of competitionCatalog.length ? competitionCatalog : status.leagues ?? []) {
     if ((!l.season || l.season===season) && !leagues.has(String(l.id))) leagues.set(String(l.id),{...l,season:l.slug ? Number(date.slice(0,4)) : season});
   }
   renderExplore(leagues,list);
@@ -608,4 +621,5 @@ if (/^\d+$/.test(params.get('competition') ?? '') && /^20\d\d$/.test(params.get(
 const initialDate = params.get('date');
 openDate(initialDate && /^20\d\d-\d\d-\d\d$/.test(initialDate) && Number.isFinite(Date.parse(initialDate)) && shift(initialDate,0)===initialDate ? initialDate : view==='upcoming' ? shift(today,1) : view==='results' ? shift(today,-1) : today);
 if (matchPageId) void loadMatch();
+void loadCompetitionCatalog();
 
