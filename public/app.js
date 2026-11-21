@@ -28,6 +28,7 @@ let today = dayFormat.format(new Date()), date = today, mode = 'all', league = '
 let matches = new Map(), opened = new Set(), highlights = new Map(), arrivals = new Map(), sound = false, audio;
 let connected = false, initialized = false, status = {}, delivery = null;
 let agenda = false, competition = null, calendar = [], calendarRequest, calendarLoaded = false, round = '';
+let competitionTab = 'overview';
 const preferences = {theme:'dark',density:'normal'};
 for (const [id,fallback] of Object.entries(preferences)) {
   const select = $(id);
@@ -66,10 +67,60 @@ function rowHTML(m) {
 }
 const matchNodes = new Map(), groupNodes = new Map();
 const tidy = value => value.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase();
+const competitionLink = (l,date) => '/?competition='+encodeURIComponent(l.id)+'&season='+encodeURIComponent(l.season ?? date.slice(0,4))+'&date='+date;
+function renderCompetition(list) {
+  const panel = $('competition-panel');
+  panel.hidden = !competition;
+  if (!competition) return;
+  const leagueInfo = list[0]?.league ?? competition;
+  const tabs = [['overview','Visão geral'],['games','Jogos'],['table','Classificação'],['stats','Estatísticas']];
+  let content = '';
+  if (competitionTab==='overview' && list.length) {
+    const final = list.filter(m=>m.status==='final');
+    const live = list.filter(m=>m.status==='live');
+    const upcoming = list.filter(m=>m.status==='scheduled' && m.kickoff && Date.parse(m.kickoff)>=Date.now());
+    content = '<div class="competition-summary">'+[[final.at(-1),'Último resultado'],[live[0] ?? upcoming[0],live.length?'Em andamento':'Próxima partida']].map(([match,label])=>match ? '<div><small>'+label+'</small><strong>'+esc(match.home.name)+' × '+esc(match.away.name)+'</strong><span>'+esc(roundName(match.round))+'</span></div>' : '').join('')+'</div>';
+  }
+  if (competitionTab==='table') {
+    const regular = [39,61,71,72,78,79,135,140].includes(competition.id);
+    const standings = new Map();
+    if (regular) for (const match of list) {
+      const teams = [match.home,match.away];
+      teams.forEach((team,i)=>{
+        const row = standings.get(team.id) ?? {name:team.name,played:0,points:0,for:0,against:0};
+        standings.set(team.id,row);
+        if (match.status!=='final' || !match.score.every(Number.isFinite)) return;
+        const goals = match.score[i], against = match.score[1-i];
+        row.played++;
+        row.for += goals;
+        row.against += against;
+        row.points += goals>against ? 3 : goals===against ? 1 : 0;
+      });
+    }
+    const rows = [...standings.values()].sort((a,b)=>b.points-a.points || (b.for-b.against)-(a.for-a.against) || b.for-a.for || a.name.localeCompare(b.name));
+    content = rows.some(row=>row.played) ? '<p class="calendar-note">Calculada pelos resultados disponíveis. Pode divergir da classificação oficial.</p><table class="data-table"><thead><tr><th scope="col">Clube</th><th scope="col">J</th><th scope="col">SG</th><th scope="col">Pts</th></tr></thead><tbody>'+rows.map((row,i)=>'<tr><th scope="row">'+(i+1)+' · '+esc(row.name)+'</th><td>'+row.played+'</td><td>'+(row.for-row.against)+'</td><td>'+row.points+'</td></tr>').join('')+'</tbody></table>' : '<p class="calendar-note">Classificação indisponível para esta competição e temporada.</p>';
+  }
+  if (competitionTab==='stats') {
+    const scorers = new Map();
+    for (const match of list.filter(m=>m.status==='final')) for (const event of match.events) {
+      if (event.kind!=='Gol' || !event.player || ['Missed Penalty','Own Goal'].includes(event.detail)) continue;
+      const key = JSON.stringify([event.team,event.player]);
+      const row = scorers.get(key) ?? {name:event.player,team:[match.home,match.away].find(t=>t.id===event.team)?.name,goals:0};
+      row.goals++;
+      scorers.set(key,row);
+    }
+    content = scorers.size ? '<p class="calendar-note">Artilharia dos jogos encerrados com autores de gols informados na agenda.</p><table class="data-table"><thead><tr><th scope="col">Jogador</th><th scope="col">Clube</th><th scope="col">Gols</th></tr></thead><tbody>'+[...scorers.values()].sort((a,b)=>b.goals-a.goals).slice(0,30).map(row=>'<tr><th scope="row">'+esc(row.name)+'</th><td>'+esc(row.team ?? '—')+'</td><td>'+row.goals+'</td></tr>').join('')+'</tbody></table>' : '<p class="calendar-note">A agenda desta temporada não informou artilharia.</p>';
+  }
+  const markup = '<div class="competition-controls"><span>'+esc(leagueInfo.country)+'</span><form id="season-form"><label for="season">Temporada</label> <input id="season" type="number" min="2000" max="2099" required value="'+competition.season+'"><button class="utility">Consultar</button></form></div><div class="tabs" aria-label="Seções do campeonato">'+tabs.map(([id,label])=>'<button data-competition-tab="'+id+'" class="'+(id===competitionTab?'selected':'')+'" aria-pressed="'+(id===competitionTab)+'">'+label+'</button>').join('')+'</div>'+content;
+  if (panel.dataset.html!==markup) { panel.innerHTML=markup; panel.dataset.html=markup; }
+}
 function render() {
   const merged = agenda ? new Map(calendar.filter(m=>m.date!==date || !status.updated).map(m=>[m.id,m])) : new Map();
-  for (const m of matches.values()) if (!competition || m.league.id===competition.id) merged.set(m.id,m);
+  for (const m of matches.values()) if (!competition || (m.league.id===competition.id && m.league.season===competition.season)) merged.set(m.id,m);
   const list = [...merged.values()].sort((a,b)=>Date.parse(a.kickoff)-Date.parse(b.kickoff));
+  renderCompetition(list);
+  const showFixtures = !competition || ['games','overview'].includes(competitionTab);
+  $('matches').hidden = $('results-meta').hidden = !showFixtures;
   const live = [...matches.values()].filter(m=>m.status==='live').length;
   $('heading').textContent = competition ? leagueName(list.find(m=>m.league.id===competition.id)?.league ?? competition) : agenda ? 'Agenda' : 'Partidas';
   $('section-label').lastChild.textContent = competition ? ' CAMPEONATO' : agenda ? ' CALENDÁRIO' : ' PLACAR DO DIA';
@@ -84,21 +135,24 @@ function render() {
   for (const l of status.leagues ?? []) {
     if ((!l.season || l.season===season) && !leagues.has(String(l.id))) leagues.set(String(l.id),{...l,season});
   }
-  const competitionLink = l => '/?competition='+encodeURIComponent(l.id)+'&season='+encodeURIComponent(l.season ?? date.slice(0,4))+'&date='+date;
-  const leagueLinks = [...leagues].map(([id,l])=>'<a class="side-button '+(competition?.id===l.id?'selected':'')+'" href="'+competitionLink(l)+'"><span class="league-icon">'+icon('trophy')+'</span>'+esc(leagueName(l))+'</a>').join('');
+  const leagueLinks = [...leagues].map(([id,l])=>'<a class="side-button '+(competition?.id===l.id?'selected':'')+'" href="'+competitionLink(l,date)+'"><span class="league-icon">'+icon('trophy')+'</span>'+esc(leagueName(l))+'</a>').join('');
   if ($('leagues').dataset.html!==leagueLinks) { $('leagues').innerHTML=leagueLinks || '<p>Nenhum campeonato nesta data</p>'; $('leagues').dataset.html=leagueLinks; }
   const options = '<option value="">Todos os campeonatos</option>'+[...leagues].map(([id,l])=>'<option value="'+esc(id)+'">'+esc(leagueName(l))+'</option>').join('');
   if ($('league-select').dataset.html!==options) { $('league-select').innerHTML=options; $('league-select').dataset.html=options; }
   $('league-select').value=league;
   const needle = tidy(query.trim());
   const rounds = [...new Set(list.map(m=>m.round).filter(Boolean))];
-  const roundOptions = '<option value="">Todas as rodadas</option>'+rounds.map(value=>'<option value="'+esc(value)+'">'+esc(roundName(value))+'</option>').join('');
+  const roundOptions = '<option value="">Todas as rodadas e fases</option>'+rounds.map(value=>{
+    const fixtures = list.filter(m=>m.round===value);
+    const state = fixtures.every(m=>m.status==='final') ? 'Encerrada' : fixtures.some(m=>m.status==='live') ? 'Em andamento' : fixtures.every(m=>m.status==='scheduled') ? 'Agendada' : '';
+    return '<option value="'+esc(value)+'">'+esc([roundName(value),state].filter(Boolean).join(' · '))+'</option>';
+  }).join('');
   if ($('round-filter').dataset.html!==roundOptions) { $('round-filter').innerHTML=roundOptions; $('round-filter').dataset.html=roundOptions; }
   $('round-filter').value=round;
   $('round-filter').hidden=!competition || !rounds.length;
   const statusFilter = $('status-filter').value;
   const shown = list.filter(m=>(mode!=='live'||m.status==='live')&&(mode!=='favorites'||favorites.has(m.id))&&(!league||String(m.league.id)===league)
-    &&(!competition||round||mode!=='all'||m.status==='live'||(m.date>=shift(date,-7)&&m.date<=shift(date,21)))
+    &&(!competition||competitionTab==='games'||round||mode!=='all'||m.status==='live'||(m.date>=shift(date,-7)&&m.date<=shift(date,21)))
     &&(!statusFilter||m.status===statusFilter)&&(!round||String(m.round)===round)
     &&(!needle||[m.home.name,m.away.name,leagueName(m.league),m.league.name].some(n=>tidy(n).includes(needle))));
   $('results-meta').innerHTML='<strong>'+shown.length+' '+(shown.length===1?'partida':'partidas')+'</strong><span></span><span>'+live+' ao vivo</span>';
@@ -117,7 +171,7 @@ function render() {
     if (!group) {
       group = document.createElement('section');
       group.className='league-group';
-      const title = competition ? roundName(m.round) || leagueName(m.league) : '<a href="'+competitionLink(m.league)+'">'+esc(leagueName(m.league))+'</a>';
+      const title = competition ? roundName(m.round) || leagueName(m.league) : '<a href="'+competitionLink(m.league,date)+'">'+esc(leagueName(m.league))+'</a>';
       group.innerHTML='<div class="league-heading"><span class="league-icon">'+(m.league.logo ? '<img alt="" width="22" height="22" src="'+esc(m.league.logo)+'">' : icon('trophy'))+'</span><div><h2>'+(competition?esc(title):title)+'</h2><small>'+esc(competition?titleFormat.format(dateValue(m.date)):m.league.country)+'</small></div></div>';
       groupNodes.set(id,group);
     }
@@ -262,6 +316,11 @@ document.addEventListener('click',event=>{
   const button=event.target.closest('button');
   if (!button) return;
   const {mode:nextMode,date:nextDate,action,nearby}=button.dataset;
+  if (button.dataset.competitionTab) {
+    competitionTab=button.dataset.competitionTab;
+    render();
+    $('competition-panel').querySelector('[aria-pressed="true"]')?.focus();
+  }
   if (button.hasAttribute('data-settings')) $('settings').showModal();
   if (button.hasAttribute('data-date-today')) {
     agenda=false; competition=null; round=''; mode='all'; $('status-filter').value='';
@@ -287,12 +346,17 @@ document.addEventListener('click',event=>{
     render();
   }
 });
+document.addEventListener('submit',event=>{
+  if (event.target.id!=='season-form') return;
+  event.preventDefault();
+  location.href=competitionLink({...competition,season:Number($('season').value)},date);
+});
 $('prev').onclick=()=>openDate(shift(date,-1));
 $('next').onclick=()=>openDate(shift(date,1));
 $('date').onchange=event=>{if(/^20\d\d-\d\d-\d\d$/.test(event.target.value)) openDate(event.target.value);};
 $('league-select').onchange=event=>{league=event.target.value;render();};
 $('status-filter').onchange=()=>{mode='all';render();};
-$('round-filter').onchange=event=>{round=event.target.value;render();};
+$('round-filter').onchange=event=>{round=event.target.value;if(round) competitionTab='games';render();};
 $('search').oninput=event=>{query=event.target.value;render();};
 $('sound').innerHTML=icon('muted');
 $('sound').onclick=async()=>{
@@ -315,4 +379,5 @@ if (/^\d+$/.test(params.get('competition') ?? '') && /^20\d\d$/.test(params.get(
 }
 const initialDate = params.get('date');
 openDate(initialDate && /^20\d\d-\d\d-\d\d$/.test(initialDate) && Number.isFinite(Date.parse(initialDate)) && shift(initialDate,0)===initialDate ? initialDate : today);
+if (competition) void loadCalendar();
 

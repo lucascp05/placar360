@@ -47,3 +47,11 @@
   .tools select{max-width:100%}
   .footer{flex-wrap:wrap}
 }
+ #competition-panel { margin: 0 0 1rem; }
+ .competition-controls { display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; margin-bottom:.75rem; }
+ .competition-controls input { width:6rem; color:inherit; background:transparent; border:1px solid currentColor; border-radius:4px; padding:.45rem; }
+ .competition-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.75rem; margin-top:.75rem; }
+ .competition-summary > div { display:grid; gap:.3rem; border-inline-start:2px solid var(--accent,#60db97); padding:.6rem .75rem; }
+ .data-table { width:100%; border-collapse:collapse; margin-top:.75rem; font-size:.875rem; }
+ .data-table :is(th,td) { text-align:left; padding:.65rem .45rem; border-bottom:1px solid var(--line); }
+ [hidden] { display:none !important; }
