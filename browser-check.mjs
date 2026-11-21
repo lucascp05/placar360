@@ -57,11 +57,50 @@ async function capture(name) {
   await writeFile(target,Buffer.from(data,'base64'));
   console.log(target);
 }
-try {
-  await send('Runtime.enable');
-  await send('Page.enable');
-  await send('Storage.clearDataForOrigin',{origin:base,storageTypes:'local_storage'});
-  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+async function checkSouthAmericanCompetitions() {
+  const season = Number(dateOf(Date.now()).slice(0,4));
+  const leagues = [[71,'Brasileirão Série A'],[73,'Copa do Brasil'],[13,'Copa Libertadores da América']];
+  for (const [id,name] of leagues) {
+    const catalog = base+'/?view=competitions';
+    await navigate(catalog);
+    const link = 'document.querySelector(\'#explore-content a[href*="competition='+id+'&"]\')';
+    await until(link);
+    assert.equal(await evaluate(link+'.querySelector("strong").textContent'),name);
+    await evaluate(link+'.click()');
+    await until("location.search.includes('competition="+id+"') && document.querySelector('#round-filter option:nth-child(2)')",120);
+    assert.equal(await evaluate("document.querySelector('#heading').textContent"),name);
+    await evaluate("document.querySelector('[data-competition-tab=games]').click()");
+    const selectStatus = value=>evaluate("{const select=document.querySelector('#status-filter');select.value="+JSON.stringify(value)+";select.dispatchEvent(new Event('change'));}");
+    await selectStatus('final');
+    assert(await evaluate("document.querySelector('article[data-match^=espn-]')"));
+    await selectStatus('scheduled');
+    assert(await evaluate("document.querySelector('article[data-match^=espn-]')"));
+    await selectStatus('');
+    await evaluate("{const phase=document.querySelector('#round-filter');phase.selectedIndex=1;phase.dispatchEvent(new Event('change'));}");
+    assert(await evaluate("document.querySelector('article[data-match^=espn-]')"));
+    await evaluate("document.querySelector('[data-competition-tab=table]').click()");
+    if (id===73) {
+      assert(await evaluate("document.querySelector('#competition-panel').textContent.includes('eliminatória')"));
+    } else {
+      await until("document.querySelector('#competition-panel .data-table tbody tr') || document.querySelector('#competition-panel [role=status]')?.textContent.includes('indisponível')");
+      assert(await evaluate("document.querySelector('#competition-panel .data-table tbody tr')"),
+        await evaluate("document.querySelector('#competition-panel [role=status]')?.textContent"));
+      assert.equal(await evaluate("document.querySelectorAll('#competition-panel caption').length"),id===13?8:1);
+    }
+    const response = await fetch(base+'/api/calendar?league='+id+'&season='+season);
+    const {matches} = await response.json();
+    assert(matches.every(m=>m.league.id===id && m.league.season===season));
+    const historical = matches.find(m=>m.status==='final' && m.events.some(e=>e.kind==='Gol'));
+    assert(historical);
+    assert(matches.some(m=>m.status==='scheduled'));
+    const detail = await fetch(base+'/api/match?id='+historical.id+'&date='+historical.date);
+    assert.equal((await detail.json()).match.id,historical.id);
+    console.log(name,matches.length+' partidas publicadas');
+  }
+  assert.deepEqual(errors,[]);
+}
+
+async function checkCorePlatform() {
   await navigate(base);
   await until("document.querySelector('#connection')?.textContent.includes('Conectado')");
   const rows=JSON.parse(await readFile(new URL('./bundesliga-cache.json',import.meta.url),'utf8'));
@@ -152,6 +191,15 @@ try {
   const results=await Promise.all(Array.from({length:100},async()=>{const response=await fetch(base+'/api/status');return (await response.json()).source;}));
   assert(results.every(source=>source==='OpenLigaDB'));
   console.log({count,nav,oneHundredRequestsMs:Math.round(performance.now()-started)});
+}
+
+try {
+  await send('Runtime.enable');
+  await send('Page.enable');
+  await send('Storage.clearDataForOrigin',{origin:base,storageTypes:'local_storage'});
+  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+  if (process.env.CHECK_SOUTH_AMERICA==='1') await checkSouthAmericanCompetitions();
+  else await checkCorePlatform();
 } finally {
   socket.close();
   await fetch(endpoint+'/json/close/'+tab.id).catch(()=>{});

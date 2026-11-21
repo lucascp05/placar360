@@ -27,7 +27,7 @@ const shift = (date,n)=>new Date(dateValue(date).getTime()+n*86400000).toISOStri
 let today = dayFormat.format(new Date()), date = today, mode = 'all', league = '', query = '', stream;
 let matches = new Map(), opened = new Set(), highlights = new Map(), arrivals = new Map(), sound = false, audio;
 let connected = false, initialized = false, status = {}, delivery = null;
-let agenda = false, competition = null, calendar = [], calendarRequest, calendarLoaded = false, round = '';
+let agenda = false, competition = null, calendar = [], calendarRequest, calendarQuery, calendarLoaded = false, round = '';
 let competitionTab = 'overview';
 let publishedStandings, standingsPending;
 let matchPageId, matchSnapshot, matchPageError, matchTab = 'events', teamId, matchContext, contextPending;
@@ -307,6 +307,7 @@ function render() {
   }
   const needle = tidy(query.trim());
   const rounds = [...new Set(list.map(m=>m.round).filter(Boolean))];
+  if (competition?.id===71 && rounds.every(value=>typeof value==='number')) rounds.sort((a,b)=>a-b);
   const roundOptions = '<option value="">Todas as rodadas e fases</option>'+rounds.map(value=>{
     const fixtures = list.filter(m=>m.round===value);
     const state = fixtures.every(m=>m.status==='final') ? 'Encerrada' : fixtures.some(m=>m.status==='live') ? 'Em andamento' : fixtures.every(m=>m.status==='scheduled') ? 'Agendada' : '';
@@ -402,18 +403,21 @@ function updateDates() {
   }).join('');
 }
 async function loadCalendar() {
-  calendarRequest?.abort();
-  const request = new AbortController();
-  calendarRequest = request;
   const params = new URLSearchParams({date});
   if (competition) { params.set('league',competition.id); params.set('season',competition.season); }
   if (view==='upcoming') { params.set('from',date); params.set('to',shift(date,range-1)); }
   if (view==='results') { params.set('from',shift(date,-6)); params.set('to',date); }
+  const query = params.toString();
+  if (calendarQuery===query && calendarRequest && !calendarRequest.signal.aborted) return;
+  calendarRequest?.abort();
+  const request = new AbortController();
+  calendarRequest = request;
+  calendarQuery = query;
   const note = $('calendar-note');
   note.hidden = false;
   note.textContent = 'Consultando a agenda…';
   try {
-    const response = await fetch('/api/calendar?'+params,{signal:request.signal});
+    const response = await fetch('/api/calendar?'+query,{signal:AbortSignal.any([request.signal,AbortSignal.timeout(15000)])});
     const data = await response.json();
     if (!response.ok) throw Error(data.error || 'Agenda indisponível');
     if (request.signal.aborted) return;
@@ -423,6 +427,7 @@ async function loadCalendar() {
     if (request.signal.aborted) return;
     note.textContent = error.message;
   }
+  if (calendarRequest===request) calendarRequest=undefined;
   note.hidden = !note.textContent;
   calendarLoaded = true;
   render();
@@ -576,6 +581,10 @@ setInterval(()=>{
   const next=dayFormat.format(new Date());
   if(next!==today){const follow=date===today;today=next;if(follow)openDate(today);else updateDates();}
 },30000);
+window.addEventListener('pagehide',()=>stream?.close());
+window.addEventListener('pageshow',event=>{
+  if (event.persisted) openDate(date,true);
+});
 const params = new URLSearchParams(location.search);
 if (Object.hasOwn(viewTitles,params.get('view'))) view=params.get('view');
 agenda = ['home','upcoming','results','teams','competitions'].includes(view);

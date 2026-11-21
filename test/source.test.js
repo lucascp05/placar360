@@ -2,6 +2,14 @@
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { createSource, dateOf, normalizeApi, normalizeOpen } from '../source.js';
+import { brasileiraoRound } from '../brasileirao-rounds.js';
+
+test('usa os mandos da tabela da CBF e restringe as rodadas à edição de 2026',()=>{
+  assert.equal(brasileiraoRound(2026,2026,819),1);
+  assert.equal(brasileiraoRound(2026,4936,6086),33);
+  assert.equal(brasileiraoRound(2026,2029,819),36);
+  assert.equal(brasileiraoRound(2025,2029,819),null);
+});
 
 test('agrupa partidas pelo dia de Brasília e rejeita dados incompletos',()=>{
   assert.equal(dateOf('2026-11-20T01:15:00Z'),'2026-11-19');

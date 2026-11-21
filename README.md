@@ -30,7 +30,9 @@ Abra [http://127.0.0.1:3600/](http://127.0.0.1:3600/). A aplicação escuta na i
 | [Sportmonks](https://www.sportmonks.com/faq/) | REST por polling. O fornecedor relata eventos em questão de segundos, sem medição independente neste projeto. | Gratuito para as principais ligas da Dinamarca e Escócia. Demais ligas dependem de assinatura. | Token e uso sujeito aos termos da assinatura. |
 | [football-data.org](https://www.football-data.org/pricing) | REST. Placares atrasados no plano gratuito. | 12 competições e 10 consultas/minuto no gratuito. | Token. Licença e dados conforme [plano e cadastro](https://www.football-data.org/client/register). |
 
-A OpenLigaDB funciona sem cadastro. Sua agenda e seu histórico incluem placares e autores dos gols quando a comunidade os registra. A fase e o relógio podem estar ausentes. A API-Football, quando configurada, oferece cobertura adicional, incluindo competições brasileiras, e pode retornar minutos, cartões, assistências, substituições, pênaltis e VAR. A disponibilidade depende da competição, da temporada e do plano.
+A OpenLigaDB funciona sem cadastro. Sua agenda e seu histórico incluem placares e autores dos gols quando a comunidade os registra. No modo sem chave, a [ESPN](https://www.espn.com.br/futebol/) também fornece placares, calendário e acontecimentos para Brasileirão Série A, Copa do Brasil e Copa Libertadores da América. A ESPN fornece a classificação da Série A e dos grupos da Libertadores. As rodadas da Série A de 2026 seguem a [tabela da CBF](https://www.cbf.com.br/futebol-brasileiro/noticias/detalhes/competicoes-campeonato-brasileiro-serie-b/cbf-divulga-tabela-detalhada-das-primeiras-rodadas-do-brasileirao-2026) quando o placar da ESPN não informa o número.
+
+A API-Football, quando configurada, continua fornecendo placares e calendários e pode retornar minutos, cartões, assistências, substituições, pênaltis e VAR. A disponibilidade depende da competição, da temporada e do plano.
 
 Na avaliação local, a OpenLigaDB retornou calendários e resultados para as cinco competições configuradas. As consultas sem credenciais à API-Football, à football-data.org e à Sportmonks foram recusadas. Os tempos informados por esses fornecedores são estimativas de suas documentações.
 
@@ -57,6 +59,7 @@ O painel informa tempos de coleta, processamento e entrega local. A resposta HTT
 ## Estrutura
 
 - `source.js` integra e normaliza as fontes e controla seus limites de consulta.
+- `espn.js` normaliza a cobertura sul-americana, com caches separados para calendário, placares do dia e classificação.
 - `server.js` configura o cache, as rotas HTTP e o canal SSE.
 - `public/` contém a interface.
 - `test/` e `browser-check.mjs` verificam a normalização e os fluxos da aplicação.
@@ -67,6 +70,8 @@ O painel informa tempos de coleta, processamento e entrega local. A resposta HTT
 Execute `npm test` para verificar fuso, normalização, deduplicação, correções, cache de agenda e detalhes históricos, cota compartilhada e falhas da fonte. O teste de leitura de uma temporada real usa o cache local se disponível.
 
 Com o servidor aberto e um Chrome isolado com depuração local na porta 9338, execute `node browser-check.mjs`. O roteiro usa o cache real de Bundesliga e verifica navegação, histórico, detalhes, perfis, calendário por rodada e por intervalo, busca, favoritos, som, temas, densidade, larguras móveis, reconexão do SSE e consultas locais concorrentes. Defina `APP_URL` para testar em outra porta. As capturas são gravadas no diretório temporário.
+
+Com o servidor sem chave e acesso às fontes, execute o roteiro com `CHECK_SOUTH_AMERICA=1` para verificar o catálogo, os resultados, os jogos agendados, as fases e as tabelas das três competições sul-americanas.
 
 ## Capturas
 

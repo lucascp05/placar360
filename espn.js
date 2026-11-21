@@ -44,7 +44,8 @@ function normalize(event, league, dateOf) {
   }
   return {
     id:'espn-'+event.id, date:dateOf(event.date), kickoff:event.date,
-    round:league.id===71 ? scoreOf(event.week?.number ?? c.week?.number) ?? brasileiraoRound(season,sides[0].team.id,sides[1].team.id) : phases[phase] ?? phase,
+    round:league.id===71 ? scoreOf(event.week?.number ?? c.week?.number) ?? brasileiraoRound(season,sides[0].team.id,sides[1].team.id)
+      : phases[phase] ?? phase?.replace(/^Group /,'Grupo '),
     leg:note?.startsWith('1st')?'Ida':note?.startsWith('2nd')?'Volta':'',
     league:{id:league.id,name:league.name,country:league.country,season,logo:''},
     home:team(sides[0]),away:team(sides[1]),score:sides.map(t=>['live','final'].includes(status) ? scoreOf(t.score) : null),
