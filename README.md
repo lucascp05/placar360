@@ -17,9 +17,19 @@ Abra [http://127.0.0.1:3600/](http://127.0.0.1:3600/). A aplicação escuta na i
 - A tela inicial reúne jogos do dia, partidas ao vivo, próximos jogos e resultados recentes. O histórico permite escolher uma data e consultar os resultados dos sete dias até ela.
 - O calendário futuro tem atalhos para amanhã, sete dias e 30 dias. Filtre por campeonato, equipe e status.
 - Na página de um campeonato, selecione a temporada, abra a aba Jogos para percorrer o calendário completo e filtre por rodada ou fase. As abas Classificação e Estatísticas exibem tabelas calculadas a partir da agenda disponível.
-- Expanda um jogo para consultar os acontecimentos e abrir sua página. Ela mostra local, árbitro, estatísticas, escalações, campo tático e confrontos da temporada quando os dados existem.
+- Clique em um jogo para abrir sua página em `/partidas/<id>?date=<data>`. Use Resumo, Linha do tempo, Estatísticas, Escalações e Confrontos para consultar os dados fornecidos. É possível favoritar, copiar o link e voltar à consulta anterior.
 - Abra um perfil de time pelo nome da equipe. Consulte sua agenda na competição selecionada, próximas partidas e os resultados usados para mostrar a forma recente.
 - Pesquise equipes, campeonatos e partidas na janela carregada. Salve links de partidas, times e campeonatos em Favoritos. Os links e as preferências de tema e densidade ficam no navegador. O cabeçalho permite ativar som de gol.
+
+## Alertas de partidas
+
+Abra a página de um jogo e selecione **Ativar alertas**. Gols, cartões vermelhos e encerramento vêm selecionados. Também é possível escolher cartões amarelos, início, intervalo, pênaltis ou todos os acontecimentos disponíveis.
+
+O sino abre a central com partidas acompanhadas, permissões, som, notificações não lidas e histórico. Para receber avisos do sistema operacional, clique em **Autorizar avisos do navegador**. O site pede permissão somente nessa ação. Se ela for negada, os alertas visuais continuam disponíveis enquanto a página estiver aberta.
+
+Preferências e até 100 alertas são armazenados no navegador. A página acompanha por SSE os dias relevantes das partidas selecionadas, mesmo em outra seção. Eventos repetidos são deduplicados. Após uma reconexão, a fotografia do placar estabelece o novo ponto de partida para os alertas.
+
+Os alertas exigem uma aba aberta. A entrega com a aba fechada exigiria um Service Worker, gestão de inscrições, chaves VAPID e um servidor acessível por HTTPS que continue consultando as fontes sem clientes conectados. Essas peças ainda não estão configuradas. [Especificação Push API](https://www.w3.org/TR/push-api/) · [RFC de VAPID](https://www.rfc-editor.org/rfc/rfc8292)
 
 ## Fontes avaliadas
 
@@ -62,6 +72,7 @@ O painel informa tempos de coleta, processamento e entrega local. A resposta HTT
 - `espn.js` normaliza a cobertura sul-americana, com caches separados para calendário, placares do dia e classificação.
 - `server.js` configura o cache, as rotas HTTP e o canal SSE.
 - `public/` contém a interface.
+- `public/notifications.js` compara estados de partidas, aplica preferências, deduplica acontecimentos e controla a central de alertas.
 - `test/` e `browser-check.mjs` verificam a normalização e os fluxos da aplicação.
 - `docs/backlog.md` registra a auditoria e as entregas incrementais.
 
@@ -72,6 +83,8 @@ Execute `npm test` para verificar fuso, normalização, deduplicação, correç�
 Com o servidor aberto e um Chrome isolado com depuração local na porta 9338, execute `node browser-check.mjs`. O roteiro usa o cache real de Bundesliga e verifica navegação, histórico, detalhes, perfis, calendário por rodada e por intervalo, busca, favoritos, som, temas, densidade, larguras móveis, reconexão do SSE e consultas locais concorrentes. Defina `APP_URL` para testar em outra porta. As capturas são gravadas no diretório temporário.
 
 Com o servidor sem chave e acesso às fontes, execute o roteiro com `CHECK_SOUTH_AMERICA=1` para verificar o catálogo, a navegação lateral, os resultados, os jogos agendados, as fases e as tabelas das três competições sul-americanas. Esse roteiro bloqueia apenas o SSE no navegador para confirmar que a agenda funciona independentemente do placar ao vivo.
+
+Use `CHECK_NOTIFICATIONS=1` para testar os alertas por partida no Chrome. Esse roteiro injeta atualizações controladas no navegador para verificar alterações de placar, tipos de eventos, deduplicação, permissão negada e desativação.
 
 ## Capturas
 

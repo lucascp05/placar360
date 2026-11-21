@@ -106,6 +106,62 @@ async function checkSouthAmericanCompetitions() {
   assert.deepEqual(errors,[]);
 }
 
+async function checkNotifications() {
+  const rows=JSON.parse(await readFile(new URL('./bundesliga-cache.json',import.meta.url),'utf8'));
+  const sample=rows.find(row=>row.matchIsFinished);
+  const date=dateOf(sample.matchDateTimeUTC);
+  const {match}=await (await fetch(base+'/api/match?id=open-'+sample.matchID+'&date='+date)).json();
+  const baseline={...match,status:'live',clock:'30′',score:[0,0],events:[],detailed:true};
+  const initializer=`(() => {
+    window.Notification=class { static permission='denied'; static async requestPermission(){return 'denied';} };
+    window.EventSource=class extends EventTarget {
+      constructor() {
+        super();
+        window.testStream=this;
+        queueMicrotask(()=>{
+          this.dispatchEvent(new Event('open'));
+          const match=${JSON.stringify(baseline)};
+          this.dispatchEvent(new MessageEvent('snapshot',{data:JSON.stringify({matches:[match,{...match,id:'open-999999'}]})}));
+        });
+      }
+      close(){}
+      patch(matches){this.dispatchEvent(new MessageEvent('patch',{data:JSON.stringify({upsert:matches,remove:[],first:false,publishedAt:Date.now()})}));}
+    };
+  })()`;
+  await send('Page.addScriptToEvaluateOnNewDocument',{source:initializer});
+  await navigate(base+'/partidas/'+match.id+'?date='+date);
+  await until("document.querySelector('[data-follow-match]')");
+  await evaluate("document.querySelector('[data-follow-match]').click()");
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('#alert-types input:checked')].map(input=>input.value)"),['goal','red','final']);
+  await evaluate("document.querySelector('#follow-form [value=save]').click()");
+  await until("document.querySelector('[data-follow-match]').ariaPressed==='true'");
+  const goal={kind:'Gol',detail:'Normal Goal',minute:32,extra:null,team:match.home.id,player:'Autor do teste',assist:'',id:'controlled-goal'};
+  const yellow={...goal,kind:'Cartão',detail:'Yellow Card',minute:33,id:'controlled-yellow'};
+  const after={...baseline,score:[1,0],events:[goal,yellow]};
+  await evaluate('window.testStream.patch('+JSON.stringify([{...after,id:'open-999999'},after,after])+')');
+  await until("document.querySelector('#notification-center-button b')?.textContent==='1'");
+  assert(await evaluate("document.querySelector('.match-hero strong').textContent==='1 : 0'"));
+  await evaluate("document.querySelector('[data-match-tab=events]').click()");
+  assert(await evaluate("document.querySelector('#match-page').textContent.includes('Cartão amarelo')"));
+  await evaluate("document.querySelector('#notification-center-button').click()");
+  assert(await evaluate("document.querySelector('#notification-permission').textContent.includes('Permissão negada')"));
+  assert.equal(await evaluate("document.querySelectorAll('#notification-history .unread').length"),1);
+  await evaluate("document.querySelector('#mark-alerts-read').click();document.querySelector('#notifications-center').close()");
+  await evaluate("document.querySelector('[data-follow-match]').click();document.querySelector('#alert-types input[value=all]').click();document.querySelector('#follow-form [value=save]').click()");
+  const corrected={...baseline,events:[yellow,{...goal,kind:'VAR',detail:'Goal cancelled',id:'controlled-var'}]};
+  await evaluate('window.testStream.patch('+JSON.stringify([corrected])+')');
+  await until("document.querySelector('.match-hero strong').textContent==='0 : 0' && document.querySelector('#notification-center-button b')?.textContent==='1'");
+  await evaluate("document.querySelector('[data-follow-match]').click();document.querySelector('#remove-match-alerts').click()");
+  await until("document.querySelector('[data-follow-match]').ariaPressed==='false'");
+  await evaluate('window.testStream.patch('+JSON.stringify([{...corrected,status:'final'}])+')');
+  assert.equal(await evaluate("document.querySelector('#notification-center-button b').textContent"),'1');
+  await send('Emulation.setDeviceMetricsOverride',{width:360,height:780,deviceScaleFactor:1,mobile:true});
+  assert(await evaluate('document.documentElement.scrollWidth <= 360'));
+  await capture('partida');
+  assert.deepEqual(errors,[]);
+  console.log('Alertas por partida, filtros, cartões e correção de gol verificados');
+}
+
 async function checkCorePlatform() {
   await navigate(base);
   await until("document.querySelector('#connection')?.textContent.includes('Conectado')");
@@ -116,8 +172,13 @@ async function checkCorePlatform() {
   assert(count>0);
   const historicRow = 'document.querySelector(\'[data-match="open-'+final.matchID+'"]\')';
   await until(historicRow);
-  await evaluate(historicRow+".querySelector('[data-action=details]').click()");
-  await until(historicRow+".querySelector('.timeline')?.textContent.includes('Gol')");
+  await evaluate(historicRow+".querySelector('[data-open-match]').click()");
+  await until("location.pathname.startsWith('/partidas/') && document.querySelector('.match-hero')");
+  assert(await evaluate("getComputedStyle(document.querySelector('#matches')).display==='none'"));
+  await evaluate("document.querySelector('[data-match-tab=events]').click()");
+  await until("document.querySelector('#match-page .event')?.textContent.includes('Gol')");
+  await evaluate("document.querySelector('[data-return-match]').click()");
+  await until("location.pathname==='/' && "+historicRow);
   await evaluate("if(document.querySelector('[data-action=favorite]').getAttribute('aria-pressed')==='false')document.querySelector('[data-action=favorite]').click();document.querySelector('.tabs [data-mode=favorites]').click()");
   assert.equal(await evaluate("document.querySelectorAll('article.match').length"),1);
   await evaluate("document.querySelector('.tabs [data-mode=all]').click();const input=document.querySelector('#search');input.value='equipe inexistente';input.dispatchEvent(new Event('input'))");
@@ -204,7 +265,8 @@ try {
   await send('Page.enable');
   await send('Storage.clearDataForOrigin',{origin:base,storageTypes:'local_storage'});
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
-  if (process.env.CHECK_SOUTH_AMERICA==='1') await checkSouthAmericanCompetitions();
+  if (process.env.CHECK_NOTIFICATIONS==='1') await checkNotifications();
+  else if (process.env.CHECK_SOUTH_AMERICA==='1') await checkSouthAmericanCompetitions();
   else await checkCorePlatform();
 } finally {
   socket.close();
