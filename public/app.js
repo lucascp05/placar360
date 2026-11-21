@@ -64,6 +64,12 @@ const leagueName = item=> leagueNames[item.id] ?? item.name;
 const roundName = value => typeof value==='number' ? 'Rodada '+value : (value ?? '').replace(/^Regular Season - /i,'Rodada ');
 const shortDate = new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short',timeZone:'UTC'});
 const scoreTotal = score => score.reduce((sum,goals)=>sum+(goals ?? 0),0);
+const statValue = value=>typeof value==='number' ? value : /^\d+(?:\.\d+)?%$/.test(value ?? '') ? Number(value.slice(0,-1)) : null;
+function statCell(value,other) {
+  const number=statValue(value), opposite=statValue(other);
+  return esc(value ?? '—')+(number!==null && opposite!==null && number+opposite>0
+    ? '<meter aria-hidden="true" min="0" max="'+(number+opposite)+'" value="'+number+'"></meter>' : '');
+}
 const matchLink = m => '/partidas/'+encodeURIComponent(m.id)+'?date='+m.date;
 const teamLink = (team,m) => competitionLink(m.league,m.date)+'&team='+encodeURIComponent(team.id);
 const legacyDetails = {'Normal Goal':'Gol','Own Goal':'Gol contra',Penalty:'Pênalti convertido','Missed Penalty':'Pênalti perdido','Yellow Card':'Cartão amarelo','Red Card':'Cartão vermelho','Second Yellow card':'Segundo amarelo','Goal cancelled':'Gol anulado','Goal confirmed':'Gol confirmado','Penalty confirmed':'Pênalti confirmado','Penalty cancelled':'Pênalti cancelado'};
@@ -111,7 +117,7 @@ function renderMatchPage() {
   if (matchTab==='numbers') {
     const values = teams.map(t=>new Map(match.statistics?.find(s=>s.team===t.id)?.values.map(v=>[v.label,v.value])));
     const labels = new Set(values.flatMap(v=>[...v.keys()]));
-    content = labels.size ? '<table class="data-table"><thead><tr><th>'+esc(teams[0].name)+'</th><th scope="col">Estatística</th><th>'+esc(teams[1].name)+'</th></tr></thead><tbody>'+[...labels].map(label=>'<tr><td>'+esc(values[0].get(label) ?? '—')+'</td><th scope="row">'+esc(label)+'</th><td>'+esc(values[1].get(label) ?? '—')+'</td></tr>').join('')+'</tbody></table>' : '<p>Estatísticas indisponíveis para esta partida.</p>';
+    content = labels.size ? '<table class="data-table match-statistics"><thead><tr><th>'+esc(teams[0].name)+'</th><th scope="col">Estatística</th><th>'+esc(teams[1].name)+'</th></tr></thead><tbody>'+[...labels].map(label=>'<tr><td>'+statCell(values[0].get(label),values[1].get(label))+'</td><th scope="row">'+esc(label)+'</th><td>'+statCell(values[1].get(label),values[0].get(label))+'</td></tr>').join('')+'</tbody></table>' : '<p>Estatísticas indisponíveis para esta partida.</p>';
   }
   if (matchTab==='lineups') {
     const players = list => list.map(p=>'<li>'+esc([p.number,p.name].filter(v=>v!=null).join(' · '))+'</li>').join('');
@@ -126,7 +132,7 @@ function renderMatchPage() {
     content = opponents?.length ? '<h2>Encontros nesta temporada</h2><ul>'+opponents.map(m=>'<li><a href="'+matchLink(m)+'">'+esc([shortDate.format(dateValue(m.date)),m.home.name,m.score.map(n=>n ?? '–').join(' : '),m.away.name].join(' · '))+'</a></li>').join('')+'</ul>' : '<p role="status">'+(contextPending?'Consultando a temporada…':'Nenhum confronto anterior disponível nesta temporada.')+'</p>';
   }
   const state = match.statusLabel || (match.status==='live' ? match.clock || 'Em jogo' : match.status==='final' ? 'Encerrado' : 'Agendado');
-  const markup = '<div class="detail-actions"><a href="/?date='+match.date+'" data-return-match>Voltar aos jogos</a><a href="'+competitionLink(match.league,match.date)+'">'+esc(leagueName(match.league))+'</a></div><h1 id="match-title">'+esc(teams.map(t=>t.name).join(' × '))+'</h1><div class="match-hero">'+teams.map((t,i)=>'<a href="'+teamLink(t,match)+'">'+teamLogo(t)+esc(t.name)+'</a>'+(i===0?'<strong>'+esc(match.score.map(n=>n ?? '–').join(' : '))+'</strong>':'')).join('')+'</div><p>'+esc([state,roundName(match.round),titleFormat.format(dateValue(match.date)),timeFormat.format(new Date(match.kickoff)),match.venue,match.referee].filter(Boolean).join(' · '))+'</p><div class="match-actions"><button class="utility" data-favorite-match aria-pressed="'+favorites.has(match.id)+'">'+(favorites.has(match.id)?'Remover dos favoritos':'Favoritar')+'</button><button class="utility" data-follow-match aria-pressed="'+notifications.following(match.id)+'">'+(notifications.following(match.id)?'Editar alertas':'Ativar alertas')+'</button><button class="utility" data-copy-match>Copiar link</button></div><div class="tabs" aria-label="Detalhes da partida">'+tabs.map(([id,label])=>'<button data-match-tab="'+id+'" class="'+(id===matchTab?'selected':'')+'" aria-pressed="'+(id===matchTab)+'">'+label+'</button>').join('')+'</div>'+(matchPageError ? '<p role="status">'+esc(matchPageError)+'</p>' : '')+content;
+  const markup = '<div class="detail-actions"><a href="/?date='+match.date+'" data-return-match>Voltar aos jogos</a><a href="'+competitionLink(match.league,match.date)+'">'+esc(leagueName(match.league))+'</a></div><h1 id="match-title">'+esc(teams.map(t=>t.name).join(' × '))+'</h1><div class="match-hero '+(highlights.has(match.id)?'fresh':'')+'">'+teams.map((t,i)=>'<a href="'+teamLink(t,match)+'">'+teamLogo(t)+esc(t.name)+'</a>'+(i===0?'<strong>'+esc(match.score.map(n=>n ?? '–').join(' : '))+'</strong>':'')).join('')+'</div><p>'+esc([state,roundName(match.round),titleFormat.format(dateValue(match.date)),timeFormat.format(new Date(match.kickoff)),match.venue,match.referee].filter(Boolean).join(' · '))+'</p><div class="match-actions"><button class="utility" data-favorite-match aria-pressed="'+favorites.has(match.id)+'">'+(favorites.has(match.id)?'Remover dos favoritos':'Favoritar')+'</button><button class="utility" data-follow-match aria-pressed="'+notifications.following(match.id)+'">'+(notifications.following(match.id)?'Editar alertas':'Ativar alertas')+'</button><button class="utility" data-copy-match>Copiar link</button></div><div class="tabs" aria-label="Detalhes da partida">'+tabs.map(([id,label])=>'<button data-match-tab="'+id+'" class="'+(id===matchTab?'selected':'')+'" aria-pressed="'+(id===matchTab)+'">'+label+'</button>').join('')+'</div>'+(matchPageError ? '<p role="status">'+esc(matchPageError)+'</p>' : '')+content;
   if (panel.dataset.html!==markup) { panel.innerHTML=markup; panel.dataset.html=markup; }
 }
 let matchRequest;
@@ -477,7 +483,7 @@ function openDate(next, reconnect=false) {
   });
   stream.addEventListener('snapshot',event=>{
     status=JSON.parse(event.data); matches=new Map(status.matches.map(m=>[m.id,m])); initialized=true; render(); paintStatus();
-    if (agenda && (status.limited && matches.size || status.updated)) void loadCalendar();
+    if (agenda && !calendarLoaded && (status.limited && matches.size || status.updated)) void loadCalendar();
   });
   stream.addEventListener('status',event=>{
     const firstUpdate = !status.updated;
@@ -509,6 +515,7 @@ function openDate(next, reconnect=false) {
     }
     render();
     if (Number.isFinite(publishedAt)) delivery=Math.max(0,Date.now()-publishedAt);
+    paintStatus();
     if(goal) ping();
   });
 }

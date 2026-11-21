@@ -79,6 +79,12 @@
  #alert-types label { display:flex; align-items:center; gap:.5rem; }
  #notification-toast { position:fixed; inset:auto 1rem calc(5rem + env(safe-area-inset-bottom)) auto; z-index:6; max-width:min(28rem,calc(100% - 2rem)); background:var(--raised); border:1px solid var(--accent); padding:1rem; }
  [data-follow-match] { border-color:var(--accent); }
+ .match-statistics :is(td,th) { text-align:center; }
+ .match-statistics meter { display:block; width:min(100%,9rem); margin:.25rem auto; accent-color:var(--accent); }
+ @media (max-width:520px) {
+   .show-match-page .match-hero a { font-size:.875rem; overflow-wrap:anywhere; }
+   .show-match-page #match-page .tabs { gap:0; }
+ }
  #match-page > a, .detail-actions a, .match-hero a { color:inherit; text-decoration:underline; text-underline-offset:.22em; }
  .match-hero, .detail-actions, .profile-title { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
  .match-hero { justify-content:space-between; padding:1rem 0; border-block:1px solid var(--line); }
