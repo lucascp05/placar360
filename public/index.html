@@ -34,7 +34,7 @@
 <section id="match-page" hidden aria-labelledby="match-title"></section>
 <div class="section-header"><div><div class="eyebrow" id="section-label"><span></span> PLACAR DO DIA</div><div class="profile-title"><span id="profile-crest" hidden></span><h1 id="heading">Partidas</h1></div></div><div id="date-label" class="date-label"></div></div>
 <div class="date-panel"><button id="prev" class="icon-button" aria-label="Dia anterior"><span data-icon="left"></span></button><div id="days" class="days"></div><button id="next" class="icon-button" aria-label="Próximo dia"><span data-icon="right"></span></button><label class="calendar" title="Escolher data"><span data-icon="calendar"></span><input id="date" type="date" aria-label="Escolher data"></label></div>
-<div id="range" class="tabs" aria-label="Período do calendário" hidden><button data-range="1">Amanhã</button><button data-range="7">7 dias</button><button data-range="30">30 dias</button></div>
+<div id="range" class="tabs calendar-range" aria-label="Período do calendário" hidden><button data-range="1">Amanhã</button><button data-range="7">7 dias</button><button data-range="30">30 dias</button><button data-calendar-step="-1">Período anterior</button><button data-calendar-step="1">Próximo período</button></div>
 <div class="filters">
 <div class="tabs" aria-label="Filtro de partidas"><button data-mode="all" class="selected">Todas</button><button data-mode="live"><i></i> Ao vivo</button><button data-mode="favorites"><span data-icon="star"></span> Favoritos</button></div>
 <label class="search"><span data-icon="search"></span><input id="search" type="search" placeholder="Times, campeonatos e jogos" aria-label="Buscar times, campeonatos e jogos"></label>
@@ -75,6 +75,7 @@
 <h2>Configurações</h2>
 <label>Tema <select id="theme"><option value="dark">Escuro</option><option value="light">Claro</option></select></label>
 <label>Visualização <select id="density"><option value="normal">Padrão</option><option value="compact">Compacta</option></select></label>
+<button class="utility" type="button" data-settings-notifications>Gerenciar notificações</button>
 <button class="utility">Concluir</button>
 </form>
 </dialog>

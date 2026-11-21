@@ -81,6 +81,7 @@
  [data-follow-match] { border-color:var(--accent); }
  .match-statistics :is(td,th) { text-align:center; }
  .match-statistics meter { display:block; width:min(100%,9rem); margin:.25rem auto; accent-color:var(--accent); }
+ .calendar-range { flex-wrap:wrap; }
  @media (max-width:520px) {
    .show-match-page .match-hero a { font-size:.875rem; overflow-wrap:anywhere; }
    .show-match-page #match-page .tabs { gap:0; }

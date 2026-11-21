@@ -122,7 +122,7 @@ export function createNotifications({escape,icon,today,activeDate,onChange,onSou
     const permission = window.Notification?.permission;
     byId('notification-permission').textContent=permission==='granted'?'Avisos do navegador autorizados.':permission==='denied'
       ? 'Permissão negada. Os alertas dentro do site continuam disponíveis.' : !permission?'Este navegador usa apenas alertas dentro do site.':'';
-    byId('allow-browser-notifications').hidden=!permission || permission==='granted';
+    byId('allow-browser-notifications').hidden=permission!=='default';
     byId('notification-history').innerHTML=state.history.length ? state.history.map(item=>'<li'+(!item.read?' class="unread"':'')+'><a href="'+escape(href(item))+'"><strong>'+escape(item.title)+'</strong><span>'+escape(item.detail)+'</span><time>'+escape(new Date(item.timestamp).toLocaleString('pt-BR'))+'</time></a></li>').join('') : '<li>Nenhum alerta recebido.</li>';
     byId('notification-follows').innerHTML=Object.values(state.follows).map(item=>'<li><a href="'+escape(href(item))+'">'+escape(item.name)+'</a><button type="button" class="utility" data-unfollow="'+escape(item.matchId)+'">Desativar</button></li>').join('') || '<li>Nenhuma partida acompanhada.</li>';
     onChange();
@@ -162,6 +162,7 @@ export function createNotifications({escape,icon,today,activeDate,onChange,onSou
   window.addEventListener('storage',event=>{if(event.key===storageKey){render();sync();}});
   window.addEventListener('pagehide',()=>{for (const stream of streams.values()) stream.close();streams.clear();});
   window.addEventListener('pageshow',sync);
+  document.addEventListener('click',()=>{if (read().sound) onSound();},{once:true});
   queueMicrotask(render);
   return {
     deliver,sync,

@@ -31,7 +31,7 @@ let today = dayFormat.format(new Date()), date = today, mode = 'all', league = '
 let matches = new Map(), highlights = new Map(), arrivals = new Map(), sound = false, audio;
 let connected = false, initialized = false, status = {}, delivery = null;
 let agenda = false, competition = null, calendar = [], calendarRequest, calendarQuery, calendarLoaded = false, round = '';
-let competitionTab = 'overview', competitionCatalog = [];
+let competitionTab = 'overview', competitionCatalog = [], restoredTeam = '';
 let publishedStandings, standingsPending;
 let matchPageId, matchSnapshot, matchPageError, matchTab = 'summary', teamId, matchContext, contextPending;
 const viewTitles = {home:'Central de futebol',today:'Jogos de hoje',live:'Ao vivo',upcoming:'Próximos jogos',results:'Resultados anteriores',competitions:'Campeonatos',teams:'Times',favorites:'Favoritos'};
@@ -284,7 +284,7 @@ async function loadCompetitionCatalog() {
 }
 
 function render() {
-  renderMatchPage();
+  if (matchPageId) { renderMatchPage(); return; }
   const merged = agenda ? new Map(calendar.filter(m=>m.date!==date || !status.updated).map(m=>[m.id,m])) : new Map();
   for (const m of matches.values()) if (!competition || (m.league.id===competition.id && m.league.season===competition.season)) merged.set(m.id,m);
   const list = [...merged.values()].sort((a,b)=>Date.parse(a.kickoff)-Date.parse(b.kickoff));
@@ -329,6 +329,10 @@ function render() {
       teamFilter.dataset.html=teamOptions;
       teamFilter.value=teams.has(previous) ? previous : '';
     }
+    if (restoredTeam && teams.has(restoredTeam)) {
+      teamFilter.value=restoredTeam;
+      restoredTeam='';
+    } else if (calendarLoaded) restoredTeam='';
   }
   const needle = tidy(query.trim());
   const rounds = [...new Set(list.map(m=>m.round).filter(Boolean))];
@@ -537,6 +541,7 @@ document.addEventListener('click',event=>{
     if (date!==shift(today,1)) openDate(shift(today,1));
     else { render(); void loadCalendar(); }
   }
+  if (button.dataset.calendarStep) openDate(shift(date,range*Number(button.dataset.calendarStep)));
   if (button.dataset.saveProfile) {
     const key = button.dataset.saveProfile;
     saveEntry(key,savedEntries.has(key) ? null : {href:location.pathname+location.search,label:$('heading').textContent,info:teamId?'Time':'Campeonato'});
@@ -581,6 +586,10 @@ document.addEventListener('click',event=>{
     if (matchTab==='context') void loadMatchContext();
   }
   if (button.hasAttribute('data-settings')) $('settings').showModal();
+  if (button.hasAttribute('data-settings-notifications')) {
+    $('settings').close();
+    $('notification-center-button').click();
+  }
   if (button.hasAttribute('data-date-today')) {
     agenda=false; competition=null; teamId=null; view='today'; round=''; mode='all'; $('status-filter').value='';
     history.replaceState(null,'','/');
@@ -617,7 +626,7 @@ $('prev').onclick=()=>openDate(shift(date,-1));
 $('next').onclick=()=>openDate(shift(date,1));
 $('date').onchange=event=>{if(/^20\d\d-\d\d-\d\d$/.test(event.target.value)) openDate(event.target.value);};
 $('league-select').onchange=event=>{league=event.target.value;render();};
-$('team-filter').onchange=render;
+$('team-filter').onchange=()=>{restoredTeam='';render();};
 $('status-filter').onchange=()=>{mode='all';render();};
 $('round-filter').onchange=event=>{round=event.target.value;if(round) competitionTab='games';render();};
 $('search').oninput=event=>{query=event.target.value;render();};
@@ -673,6 +682,7 @@ if (restored) {
   ({view,mode,league,query,round,range,competitionTab,agenda}=restored);
   $('status-filter').value=restored.status;
   $('search').value=query;
+  restoredTeam=restored.team;
   render();
 }
 if (matchPageId) void loadMatch();
