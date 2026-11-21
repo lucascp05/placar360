@@ -1,7 +1,7 @@
 ﻿import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
-import { createSource, dateOf, openLeagues, priority } from './source.js';
+import { createSource, dateOf, priority } from './source.js';
 
 const key = process.env.API_FOOTBALL_KEY?.trim();
 const limit = Math.max(1, Number(process.env.API_DAILY_LIMIT) || 100);
@@ -35,7 +35,7 @@ function send(client, type, value) {
 function status(entry) {
   const {updated,error,processing,upstream,next} = entry;
   const nearby = seed.map(m=>m.date).filter(date=>date>entry.date).sort()[0] ?? null;
-  return {updated,error,processing,upstream,next,nearby,source:source.name,limited:!key,leagues:key ? [] : openLeagues};
+  return {updated,error,processing,upstream,next,nearby,source:source.name,supplemental:source.supplemental,limited:!key,leagues:source.leagues};
 }
 function publish(entry, type, value) {
   for (const client of entry.clients) send(client,type,value);
@@ -108,7 +108,7 @@ createServer(async (req,res)=>{
   if (!validDay(date)) { res.writeHead(400).end(); return; }
   if (url.pathname==='/api/match') {
     const id = url.searchParams.get('id') ?? '';
-    if (!/^(?:open|api)-\d+$/.test(id)) { res.writeHead(400).end(); return; }
+    if (!/^(?:open|api|espn)-\d+$/.test(id)) { res.writeHead(400).end(); return; }
     res.setHeader('Content-Type','application/json; charset=utf-8');
     res.setHeader('Cache-Control','no-store');
     let match = days.get(date)?.matches.find(m=>m.id===id) ?? seed.find(m=>m.id===id);
@@ -116,6 +116,8 @@ createServer(async (req,res)=>{
     try {
       if (key && id.startsWith('api-') && (!match?.detailed || !match?.lineups?.length)) {
         match = await source.fixture(id) ?? match;
+      } else if (!match && !key && id.startsWith('espn-')) {
+        match = await source.fixture(id,date);
       } else if (!match && !key && id.startsWith('open-')) {
         const agenda = await source.calendar(date,date);
         match = agenda.matches.find(m=>m.id===id);
@@ -144,7 +146,7 @@ createServer(async (req,res)=>{
       const result = await source.calendar(from,to,league,season);
       const matches = new Map(result.matches.map(match=>[match.id,match]));
       for (const entry of days.values()) if (entry.updated) {
-        for (const match of matches.values()) if (match.date===entry.date) matches.delete(match.id);
+        for (const match of matches.values()) if (match.date===entry.date && !match.id.startsWith('espn-')) matches.delete(match.id);
         for (const match of entry.matches) matches.set(match.id,match);
       }
       const visible = [...matches.values()].filter(m=>league ? m.league.id===league&&m.league.season===season : m.date>=from&&m.date<=to);

@@ -56,7 +56,7 @@ function saveEntry(key, entry) {
 }
 const leagueNames = {71:'Brasileirão Série A',72:'Brasileirão Série B',73:'Copa do Brasil',75:'Série C',475:'Copa do Nordeste',13:'Libertadores',11:'Sul-Americana',2:'Champions League',3:'Europa League',39:'Premier League',78:'Bundesliga',79:'2. Bundesliga',140:'La Liga',1:'Copa do Mundo'};
 const teamLogo = team => team.logo ? '<img class="crest" loading="lazy" decoding="async" width="23" height="23" alt="" src="'+esc(team.logo)+'">' : '<span class="crest crest-fallback">'+esc(team.name.slice(0,2).toUpperCase())+'</span>';
-const leagueName = item=> leagueNames[item.id] ?? item.name;
+const leagueName = item=> item.id===13 ? 'Copa Libertadores da América' : leagueNames[item.id] ?? item.name;
 const roundName = value => typeof value==='number' ? 'Rodada '+value : (value ?? '').replace(/^Regular Season - /i,'Rodada ');
 const shortDate = new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short',timeZone:'UTC'});
 const scoreTotal = score => score.reduce((sum,goals)=>sum+(goals ?? 0),0);
@@ -262,7 +262,7 @@ function render() {
   const leagues = new Map(list.map(m=>[String(m.league.id),m.league]));
   const season = Number(date.slice(0,4))-(Number(date.slice(5,7))<7?1:0);
   for (const l of status.leagues ?? []) {
-    if ((!l.season || l.season===season) && !leagues.has(String(l.id))) leagues.set(String(l.id),{...l,season});
+    if ((!l.season || l.season===season) && !leagues.has(String(l.id))) leagues.set(String(l.id),{...l,season:l.slug ? Number(date.slice(0,4)) : season});
   }
   renderExplore(leagues,list);
   $('range').hidden = view!=='upcoming';
@@ -360,10 +360,10 @@ function paintStatus() {
   $('connection').classList.toggle('online',connected&&!status.error&&Boolean(status.updated));
   $('connection').innerHTML='<i></i> '+label;
   $('source-name').textContent=status.source ?? 'Fonte esportiva';
-  $('source-hint').textContent=status.limited ? 'Cobertura comunitária' : status.source ? 'Cobertura conforme o plano da fonte' : 'Aguardando conexão';
+  $('source-hint').textContent=status.supplemental ? 'Cobertura complementar da '+status.supplemental : status.limited ? 'Cobertura comunitária' : status.source ? 'Cobertura conforme o plano da fonte' : 'Aguardando conexão';
   $('updated').textContent=status.updated ? 'Consulta às '+timeFormat.format(new Date(status.updated)) : status.cached ? 'Agenda em cache' : 'Aguardando dados';
   $('latency').textContent=(status.processing!=null ? 'Servidor: '+status.processing+' ms · Coleta/cache: '+status.upstream+' ms · ' : '')+(delivery!==null ? 'Entrega e renderização local: '+delivery+' ms · ' : '')+'Atraso do evento na fonte: desconhecido';
-  $('attribution').innerHTML=status.limited ? 'Dados: <a href="https://www.openligadb.de/en/license" target="_blank" rel="noopener">OpenLigaDB (ODbL)</a>' : status.source ? 'Dados: API-Football' : '';
+  $('attribution').innerHTML=status.limited ? 'Dados: <a href="https://www.openligadb.de/en/license" target="_blank" rel="noopener">OpenLigaDB (ODbL)</a>'+(status.supplemental ? ' · <a href="https://www.espn.com.br/futebol/" target="_blank" rel="noopener">ESPN</a>' : '') : status.source ? 'Dados: API-Football' : '';
 }
 function ping() {
   if (!sound || !audio || audio.state!=='running') return;
@@ -561,7 +561,7 @@ if (['live','favorites'].includes(view)) mode=view;
 document.querySelectorAll('[data-view]').forEach(link=>{
   if (link.dataset.view===view && !params.has('competition') && !params.has('match')) link.setAttribute('aria-current','page');
 });
-if (/^(?:api|open)-\d+$/.test(params.get('match') ?? '')) {
+if (/^(?:api|open|espn)-\d+$/.test(params.get('match') ?? '')) {
   matchPageId=params.get('match');
   $('match-page').parentElement.classList.add('match-page-active');
 }

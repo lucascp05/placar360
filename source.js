@@ -1,5 +1,7 @@
 ﻿import { readFile, writeFile, rename } from 'node:fs/promises';
 
+import { createEspn, southAmericanLeagues } from './espn.js';
+
 export const priority = [71,72,73,75,475,476,477,478,479,13,11,2,3,39,140,78,79,135,61,1,4,9,960];
 export const openLeagues = [
   {id:78,shortcut:'bl1',name:'Bundesliga',country:'Alemanha'},
@@ -170,6 +172,11 @@ export function createSource(key, limit) {
     return response;
   }
   const openFeeds = key ? [] : openLeagues.map(league=>createOpenFeed(league,request));
+  const espn = createEspn(async url=>{
+    const response = await fetch(url,{signal:AbortSignal.timeout(2500)});
+    if (!response.ok) throw Error('ESPN respondeu HTTP '+response.status);
+    return response;
+  },dateOf);
   async function apiFixtures(query) {
     const nowDay = new Date().toISOString().slice(0,10);
     if (quotaDay !== nowDay) { quotaDay = nowDay; used = 0; remaining = limit; }
@@ -188,10 +195,18 @@ export function createSource(key, limit) {
   const details = new Map();
   return {
     name:key ? 'API-Football' : 'OpenLigaDB',
+    leagues:key ? southAmericanLeagues : [...openLeagues,...southAmericanLeagues],
+    supplemental:key ? null : 'ESPN',
     async initialize() {
       return (await Promise.all(openFeeds.map(feed=>feed.initialize()))).flat();
     },
-    fixture(id) {
+    async fixture(id,date) {
+      if (!key && id.startsWith('espn-')) {
+        const calendar = await espn.calendar(date,date);
+        const match = calendar.matches.find(m=>m.id===id);
+        if (!match && calendar.error) throw Error(calendar.error);
+        return match ?? null;
+      }
       if (!key) return Promise.resolve(null);
       const cached = details.get(id);
       if (cached && Date.now()-cached.time<cached.ttl) return cached.result;
@@ -209,16 +224,21 @@ export function createSource(key, limit) {
     },
     async calendar(day, end, league, season) {
       if (!key) {
+        if (southAmericanLeagues.some(l=>l.id===league)) return espn.calendar(day,end,league,season);
+        const supplemental = league ? null : espn.calendar(day,end).catch(()=>({matches:[],error:'Agenda ESPN indisponível'}));
         const dates = new Set(league ? [season] : [openSeason(day),openSeason(end)]);
         const requests = openFeeds.flatMap((feed,index)=>league && league!==openLeagues[index].id
           ? [] : [...dates].map(year=>feed.schedule(year)));
         const results = await Promise.allSettled(requests);
-        if (requests.length && results.every(r=>r.status==='rejected')) throw results[0].reason;
+        const extra = await supplemental;
         const schedules = openFeeds.flatMap((feed,index)=>[...feed.seasons].filter(([year])=>league
           ? openLeagues[index].id===league && year===season : dates.has(year)).map(([,data])=>data));
-        if (!schedules.length) throw Error('Aguardando a agenda da fonte');
-        return {matches:schedules.flatMap(data=>data.matches), cached:schedules.every(data=>!data.updated),
-          error:results.some(r=>r.status==='rejected') ? 'Cobertura parcial da agenda nesta consulta' : undefined};
+        if (!schedules.length && (!extra || extra.error && !extra.matches.length)) {
+          throw results.find(r=>r.status==='rejected')?.reason ?? Error('Aguardando a agenda da fonte');
+        }
+        return {matches:[...schedules.flatMap(data=>data.matches),...(extra?.matches ?? [])],
+          cached:Boolean(extra?.cached || schedules.length && schedules.every(data=>!data.updated)),
+          error:results.some(r=>r.status==='rejected') || extra?.error ? 'Cobertura parcial da agenda nesta consulta' : undefined};
       }
       const scope = league ? 'league='+league+'&season='+season : 'from='+day+'&to='+end;
       const cached = calendars.get(scope);
@@ -265,10 +285,10 @@ export function createSource(key, limit) {
       }
       const season = openSeason(day);
       const activeFeeds = openFeeds.filter((_,index)=>!openLeagues[index].season || openLeagues[index].season===season);
-      const results = await Promise.allSettled(activeFeeds.map(feed=>feed.collect(day,known)));
+      const results = await Promise.allSettled([...activeFeeds.map(feed=>feed.collect(day,known)),espn.collect(day,known)]);
       if (results.every(result=>result.status==='rejected')) throw results[0].reason;
       return results.flatMap((result,index)=>result.status==='fulfilled' ? result.value
-        : activeFeeds[index].seasons.get(season)?.matches ?? []);
+        : index===activeFeeds.length ? known.filter(m=>m.id.startsWith('espn-')) : activeFeeds[index].seasons.get(season)?.matches ?? []);
     }
   };
 }
