@@ -35,7 +35,7 @@ let competitionTab = 'overview', competitionCatalog = [], restoredTeam = '';
 let publishedStandings, standingsPending;
 let matchPageId, matchSnapshot, matchPageError, matchTab = 'summary', teamId, matchContext, contextPending;
 const viewTitles = {home:'Central de futebol',today:'Jogos de hoje',live:'Ao vivo',upcoming:'Próximos jogos',results:'Resultados anteriores',competitions:'Campeonatos',teams:'Times',favorites:'Favoritos'};
-let view = 'home', range = 7;
+let view = 'home', range = 7, resultLimit = 50, calendarError = '';
 const preferences = {theme:'dark',density:'normal'};
 for (const [id,fallback] of Object.entries(preferences)) {
   const select = $(id);
@@ -71,7 +71,7 @@ function statCell(value,other) {
     ? '<meter aria-hidden="true" min="0" max="'+(number+opposite)+'" value="'+number+'"></meter>' : '');
 }
 const matchLink = m => '/partidas/'+encodeURIComponent(m.id)+'?date='+m.date;
-const teamLink = (team,m) => competitionLink(m.league,m.date)+'&team='+encodeURIComponent(team.id);
+const teamLink = (team,m) => '/times/'+m.league.id+'/'+team.id+'?season='+m.league.season;
 const legacyDetails = {'Normal Goal':'Gol','Own Goal':'Gol contra',Penalty:'Pênalti convertido','Missed Penalty':'Pênalti perdido','Yellow Card':'Cartão amarelo','Red Card':'Cartão vermelho','Second Yellow card':'Segundo amarelo','Goal cancelled':'Gol anulado','Goal confirmed':'Gol confirmado','Penalty confirmed':'Pênalti confirmado','Penalty cancelled':'Pênalti cancelado'};
 function eventHTML(event, match, compact=false) {
   const symbol = ({Gol:'ball',Cartão:'card',Substituição:'swap',VAR:'var',Fase:'clock'})[event.kind];
@@ -91,7 +91,7 @@ function rowHTML(m) {
 }
 const matchNodes = new Map(), groupNodes = new Map();
 const tidy = value => value.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase();
-const competitionLink = (l,date) => '/?competition='+encodeURIComponent(l.id)+'&season='+encodeURIComponent(l.season ?? date.slice(0,4))+'&date='+date;
+const competitionLink = (l,date) => '/campeonatos/'+encodeURIComponent(l.id)+'?season='+encodeURIComponent(l.season ?? date.slice(0,4));
 function renderMatchPage() {
   const panel = $('match-page');
   if (!matchPageId) return;
@@ -290,6 +290,11 @@ function render() {
   const list = [...merged.values()].sort((a,b)=>Date.parse(a.kickoff)-Date.parse(b.kickoff));
   renderCompetition(list);
   const showFixtures = !['teams','competitions'].includes(view) && (!competition || ['games','overview'].includes(competitionTab));
+  document.querySelector('.date-panel').hidden = Boolean(competition) || ['teams','competitions','favorites'].includes(view);
+  $('date-label').hidden = Boolean(competition);
+  $('league-select').hidden = Boolean(competition);
+  $('games-navigation').hidden = !['today','upcoming','results'].includes(view);
+  document.querySelector('.filters [aria-label="Filtro de partidas"]').hidden = Boolean(competition) || view!=='home';
   $('matches').hidden = $('results-meta').hidden = !showFixtures;
   const live = [...matches.values()].filter(m=>m.status==='live').length;
   const team = teamId && list.flatMap(m=>[m.home,m.away]).find(t=>String(t.id)===teamId);
@@ -311,8 +316,9 @@ function render() {
     if ((!l.season || l.season===season) && !leagues.has(String(l.id))) leagues.set(String(l.id),{...l,season:l.slug ? Number(date.slice(0,4)) : season});
   }
   renderExplore(leagues,list);
-  $('range').hidden = view!=='upcoming';
-  document.querySelectorAll('[data-range]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.range)===range)));
+  $('range').hidden = !['upcoming','results'].includes(view);
+  document.querySelectorAll('[data-window]').forEach(button=>button.hidden=button.dataset.window!==view);
+  document.querySelectorAll('[data-range]').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.range)===range&&shift(today,Number(button.dataset.offset))===date)));
   const leagueLinks = [...leagues].map(([id,l])=>'<a class="side-button '+(competition?.id===l.id?'selected':'')+'" href="'+competitionLink(l,date)+'"><span class="league-icon">'+icon('trophy')+'</span>'+esc(leagueName(l))+'</a>').join('');
   if ($('leagues').dataset.html!==leagueLinks) { $('leagues').innerHTML=leagueLinks || '<p>Nenhum campeonato nesta data</p>'; $('leagues').dataset.html=leagueLinks; }
   const options = '<option value="">Todos os campeonatos</option>'+[...leagues].map(([id,l])=>'<option value="'+esc(id)+'">'+esc(leagueName(l))+'</option>').join('');
@@ -344,35 +350,52 @@ function render() {
   }).join('');
   if ($('round-filter').dataset.html!==roundOptions) { $('round-filter').innerHTML=roundOptions; $('round-filter').dataset.html=roundOptions; }
   $('round-filter').value=round;
-  $('round-filter').hidden=!competition || !rounds.length;
+  $('round-filter').hidden=!competition || competitionTab!=='games' || !rounds.length;
+  const currentRound = list.find(m=>m.status==='live')?.round
+    ?? list.find(m=>m.date>=today && m.status==='scheduled')?.round ?? list.at(-1)?.round;
+  const roundNav = $('round-navigation');
+  roundNav.hidden = $('round-filter').hidden;
+  const roundMarkup = rounds.map(value=>'<button type="button" data-round="'+esc(value)+'" aria-pressed="'+(String(value)===round)+'">'+esc(roundName(value))+(value===currentRound?' <small>Em destaque</small>':'')+'</button>').join('');
+  if (roundNav.dataset.html!==roundMarkup) { roundNav.innerHTML=roundMarkup; roundNav.dataset.html=roundMarkup; }
   const statusFilter = $('status-filter').value;
-  const shown = list.filter(m=>(mode!=='live'||m.status==='live')&&(mode!=='favorites'||favorites.has(m.id))&&(!league||String(m.league.id)===league)
+  const filtered = list.filter(m=>(mode!=='live'||m.status==='live')&&(mode!=='favorites'||favorites.has(m.id))&&(!league||String(m.league.id)===league)
     &&(view!=='home'||m.date===date)
     &&(view!=='upcoming'||(m.date>=date&&m.date<=shift(date,range-1)&&['scheduled','other'].includes(m.status)))
     &&(view!=='upcoming'||!teamFilter.value||[m.home,m.away].some(t=>String(t.id)===teamFilter.value))
-    &&(view!=='results'||(m.status==='final'&&m.date<=date&&m.date>=shift(date,-6)))
+    &&(view!=='results'||(m.status==='final'&&m.date<=date&&m.date>=shift(date,1-range)))
     &&(!teamId||[m.home,m.away].some(t=>String(t.id)===teamId))
-    &&(!competition||competitionTab==='games'||round||mode!=='all'||m.status==='live'||(m.date>=shift(date,-7)&&m.date<=shift(date,21)))
     &&(!statusFilter||m.status===statusFilter)&&(!round||String(m.round)===round)
     &&(!needle||needle.split(/\s+/).every(term=>tidy([m.home.name,m.away.name,leagueName(m.league),m.league.name].join(' ')).includes(term))));
-  $('results-meta').innerHTML='<strong>'+shown.length+' '+(shown.length===1?'partida':'partidas')+'</strong><span></span><span>'+live+' ao vivo</span>';
+  const shown = view==='results' && !competition ? filtered.reverse().slice(0,resultLimit)
+    : competition && competitionTab==='overview' ? [
+      ...filtered.filter(m=>m.status==='final').slice(-5).reverse(),
+      ...filtered.filter(m=>m.status==='live'),
+      ...filtered.filter(m=>m.status==='scheduled'&&Date.parse(m.kickoff)>=Date.now()).slice(0,5)] : filtered;
+  $('more-results').hidden = view!=='results' || shown.length>=filtered.length;
+  $('results-meta').textContent = filtered.length+' '+(filtered.length===1?'partida':'partidas');
   const container = $('matches'), usedGroups = new Set(), usedMatches = new Set(), lastRows = new Map();
   let previousGroup;
-  const empty = agenda ? calendarLoaded ? ['Nenhuma partida encontrada','Experimente mudar os filtros ou a data.'] : ['Consultando a agenda','Aguardando a resposta da fonte.'] : !initialized ? ['Buscando partidas','Aguardando a conexão com a central.'] : status.error && !status.updated && !list.length ? ['Fonte indisponível','A central tentará se conectar novamente.'] : !status.updated && !list.length ? ['Consultando a agenda','Aguardando a primeira resposta da fonte.'] : ['Nenhuma partida encontrada',list.length ? 'Experimente mudar os filtros da lista.' : 'A fonte não informou partidas para esta data.'];
+  const empty = agenda && !calendarLoaded ? ['Consultando a agenda','Aguardando a resposta da fonte.']
+    : calendarError ? ['Agenda indisponível',calendarError]
+    : !agenda && status.error && !list.length ? ['Fonte indisponível','A conexão será retomada automaticamente.']
+    : !agenda && !initialized ? ['Buscando partidas','Aguardando a conexão com a central.']
+    : round || statusFilter || league || needle ? ['Sem resultados para estes filtros','Altere os filtros para ampliar a consulta.']
+    : ['Sem partidas neste período',competition ? 'Experimente consultar outra temporada.' : 'Escolha outro período no calendário.'];
   let placeholder = $('empty');
   if (!shown.length) {
     if (!placeholder) { placeholder=document.createElement('div'); placeholder.id='empty'; placeholder.className='empty'; container.append(placeholder); }
-    const markup = '<div>'+icon('ball')+'</div><h2>'+empty[0]+'</h2><p>'+empty[1]+'</p>'+(date===today?'<button data-nearby="'+(status.nearby ?? shift(date,1))+'">Ver próxima data</button>':'<button data-nearby="0">Voltar para hoje</button>');
+    const markup = '<div>'+icon('ball')+'</div><h2>'+empty[0]+'</h2><p>'+esc(empty[1])+'</p>'+(calendarError ? '<button data-retry-calendar>Tentar novamente</button>' : '');
     if (placeholder.innerHTML!==markup) placeholder.innerHTML=markup;
   } else placeholder?.remove();
   for (const m of shown) {
-    const id = competition ? JSON.stringify([m.round,m.date]) : String(m.league.id);
+    const id = competition ? JSON.stringify([m.round,m.round ? null : m.date]) : view==='upcoming' ? m.date : view==='results' ? JSON.stringify([m.league.id,m.league.season,m.round]) : String(m.league.id);
     let group = groupNodes.get(id);
     if (!group) {
       group = document.createElement('section');
       group.className='league-group';
-      const title = competition ? roundName(m.round) || leagueName(m.league) : '<a href="'+competitionLink(m.league,date)+'">'+esc(leagueName(m.league))+'</a>';
-      group.innerHTML='<div class="league-heading"><span class="league-icon">'+(m.league.logo ? '<img alt="" width="22" height="22" src="'+esc(m.league.logo)+'">' : icon('trophy'))+'</span><div><h2>'+(competition?esc(title):title)+'</h2><small>'+esc(competition?titleFormat.format(dateValue(m.date)):m.league.country)+'</small></div></div>';
+      const title = competition ? esc(roundName(m.round) || 'Partidas') : view==='upcoming' ? esc(titleFormat.format(dateValue(m.date))) : '<a href="'+competitionLink(m.league,date)+'">'+esc(leagueName(m.league))+'</a>';
+      const subtitle = view==='results' ? [m.league.season,roundName(m.round)].filter(Boolean).join(' · ') : !competition && view!=='upcoming' ? m.league.country : '';
+      group.innerHTML='<div class="league-heading"><span class="league-icon">'+icon(view==='upcoming'?'calendar':'trophy')+'</span><div><h2>'+title+'</h2>'+(subtitle?'<small>'+esc(subtitle)+'</small>':'')+'</div></div>';
       groupNodes.set(id,group);
     }
     if (!usedGroups.has(id)) {
@@ -401,7 +424,7 @@ function render() {
   }
   for (const [id,row] of matchNodes) if (!usedMatches.has(id)) { row.remove(); matchNodes.delete(id); }
   for (const [id,group] of groupNodes) if (!usedGroups.has(id)) { group.remove(); groupNodes.delete(id); }
-  const recent = [...matches.values()].flatMap(m=>m.events.map(e=>({e,m,arrival:arrivals.get(m.id+e.id) ?? 0})))
+  const recent = [...matches.values()].filter(m=>!competition||m.league.id===competition.id&&m.league.season===competition.season).flatMap(m=>m.events.map(e=>({e,m,arrival:arrivals.get(m.id+e.id) ?? 0})))
     .sort((a,b)=>b.arrival-a.arrival||(Date.parse(b.m.kickoff)+(b.e.minute??130)*60000)-(Date.parse(a.m.kickoff)+(a.e.minute??130)*60000)).slice(0,20);
   const feed = recent.length ? recent.map(({e,m})=>eventHTML(e,m,true)).join('') : '<div class="feed-empty"><div class="radar">'+icon('pulse')+'</div><strong>Nenhum evento registrado</strong><p>Os eventos disponíveis das partidas aparecem aqui.</p></div>';
   if ($('feed-content').dataset.html!==feed) { $('feed-content').innerHTML=feed; $('feed-content').dataset.html=feed; }
@@ -432,10 +455,10 @@ function updateDates() {
   }).join('');
 }
 async function loadCalendar() {
-  const params = new URLSearchParams({date});
+  const params = new URLSearchParams(competition ? {} : {date});
   if (competition) { params.set('league',competition.id); params.set('season',competition.season); }
   if (view==='upcoming') { params.set('from',date); params.set('to',shift(date,range-1)); }
-  if (view==='results') { params.set('from',shift(date,-6)); params.set('to',date); }
+  if (view==='results') { params.set('from',shift(date,1-range)); params.set('to',date); }
   const query = params.toString();
   if (calendarQuery===query && calendarRequest && !calendarRequest.signal.aborted) return;
   calendarRequest?.abort();
@@ -443,35 +466,44 @@ async function loadCalendar() {
   calendarRequest = request;
   calendarQuery = query;
   const note = $('calendar-note');
+  calendarError = '';
   note.hidden = false;
   note.textContent = 'Consultando a agenda…';
   try {
-    const response = await fetch('/api/calendar?'+query,{signal:AbortSignal.any([request.signal,AbortSignal.timeout(15000)])});
+    const response = await fetch('/api/calendar?'+query,{signal:AbortSignal.any([request.signal,AbortSignal.timeout(22000)])});
     const data = await response.json();
     if (!response.ok) throw Error(data.error || 'Agenda indisponível');
     if (request.signal.aborted) return;
     calendar = data.matches;
-    note.textContent = data.error ? 'Agenda em cache · '+data.error : data.cached ? 'Agenda em cache' : '';
+    calendarError = data.error ?? '';
+    note.textContent = [data.cached?'Agenda em cache':'',calendarError].filter(Boolean).join(' · ');
   } catch (error) {
     if (request.signal.aborted) return;
-    note.textContent = error.message;
+    calendarError = error instanceof TypeError ? 'Falha de conexão com o servidor.' : error.message;
+    note.textContent = calendarError;
   }
   if (calendarRequest===request) calendarRequest=undefined;
   note.hidden = !note.textContent;
   calendarLoaded = true;
   render();
 }
-function openDate(next, reconnect=false) {
+function openDate(next, reconnect=false, updateURL=false) {
   if (!/^20\d\d-\d\d-\d\d$/.test(next) || !Number.isFinite(Date.parse(next)) || shift(next,0)!==next) return;
   stream?.close();
   if (!reconnect) {
     calendarRequest?.abort();
-    calendar = []; calendarLoaded = false;
+    calendar = []; calendarLoaded = false; calendarError = ''; resultLimit = 50;
     $('calendar-note').hidden = true;
     date=next; league=''; status={}; matches.clear(); arrivals.clear(); highlights.clear();
     initialized=false; delivery=null;
     updateDates(); render();
     if (agenda) void loadCalendar();
+  }
+  if (updateURL && !competition && !matchPageId) {
+    const url = new URL(location.href);
+    url.searchParams.set('date',date);
+    if (['results','upcoming'].includes(view)) url.searchParams.set('range',range);
+    history.replaceState(history.state,'',url);
   }
   connected=false;
   paintStatus();
@@ -538,10 +570,16 @@ document.addEventListener('click',event=>{
   const {mode:nextMode,date:nextDate,action,nearby}=button.dataset;
   if (button.dataset.range) {
     range=Number(button.dataset.range);
-    if (date!==shift(today,1)) openDate(shift(today,1));
-    else { render(); void loadCalendar(); }
+    openDate(shift(today,Number(button.dataset.offset)),false,true);
   }
-  if (button.dataset.calendarStep) openDate(shift(date,range*Number(button.dataset.calendarStep)));
+  if (button.id==='current-week') {
+    range=7-((dateValue(today).getUTCDay()+6)%7);
+    openDate(today,false,true);
+  }
+  if (button.dataset.calendarStep) openDate(shift(date,range*Number(button.dataset.calendarStep)),false,true);
+  if (button.hasAttribute('data-retry-calendar')) { calendarLoaded=false; void loadCalendar(); render(); }
+  if (button.id==='more-results') { resultLimit+=50; render(); }
+  if (button.dataset.round) selectRound(round===button.dataset.round?'':button.dataset.round);
   if (button.dataset.saveProfile) {
     const key = button.dataset.saveProfile;
     saveEntry(key,savedEntries.has(key) ? null : {href:location.pathname+location.search,label:$('heading').textContent,info:teamId?'Time':'Campeonato'});
@@ -557,6 +595,8 @@ document.addEventListener('click',event=>{
   }
   if (button.dataset.competitionTab) {
     competitionTab=button.dataset.competitionTab;
+    if (competitionTab!=='games') round='';
+    syncCompetitionURL();
     render();
     if (competitionTab==='table') void loadStandings();
     $('competition-panel').querySelector('[aria-pressed="true"]')?.focus();
@@ -604,8 +644,8 @@ document.addEventListener('click',event=>{
     else { render(); void loadCalendar(); }
   }
   if (nextMode) {mode=nextMode; if (nextMode!=='all') $('status-filter').value=''; render();}
-  if (nextDate&&nextDate!==date) openDate(nextDate);
-  if (nearby!==undefined) openDate(nearby==='0' ? today : nearby);
+  if (nextDate&&nextDate!==date) openDate(nextDate,false,true);
+  if (nearby!==undefined) openDate(nearby==='0' ? today : nearby,false,true);
   if (action) {
     const id=button.closest('[data-match]').dataset.match;
     if(favorites.has(id)) favorites.delete(id); else favorites.add(id);
@@ -620,15 +660,29 @@ document.addEventListener('click',event=>{
 document.addEventListener('submit',event=>{
   if (event.target.id!=='season-form') return;
   event.preventDefault();
-  location.href=competitionLink({...competition,season:Number($('season').value)},date)+(teamId?'&team='+encodeURIComponent(teamId):'');
+  const season=Number($('season').value);
+  location.href=teamId ? teamLink({id:teamId},{league:{...competition,season}}) : competitionLink({...competition,season},date);
 });
-$('prev').onclick=()=>openDate(shift(date,-1));
-$('next').onclick=()=>openDate(shift(date,1));
-$('date').onchange=event=>{if(/^20\d\d-\d\d-\d\d$/.test(event.target.value)) openDate(event.target.value);};
+$('prev').onclick=()=>openDate(shift(date,-1),false,true);
+$('next').onclick=()=>openDate(shift(date,1),false,true);
+$('date').onchange=event=>{if(/^20\d\d-\d\d-\d\d$/.test(event.target.value)) openDate(event.target.value,false,true);};
 $('league-select').onchange=event=>{league=event.target.value;render();};
 $('team-filter').onchange=()=>{restoredTeam='';render();};
 $('status-filter').onchange=()=>{mode='all';render();};
-$('round-filter').onchange=event=>{round=event.target.value;if(round) competitionTab='games';render();};
+function syncCompetitionURL() {
+  const url=new URL(location.href);
+  url.searchParams.set('tab',competitionTab);
+  if (round) url.searchParams.set('round',round); else url.searchParams.delete('round');
+  history.replaceState(history.state,'',url);
+}
+function selectRound(value) {
+  round=value;
+  competitionTab='games';
+  syncCompetitionURL();
+  render();
+  if (value) $('round-navigation').querySelector('[aria-pressed="true"]')?.focus();
+}
+$('round-filter').onchange=event=>selectRound(event.target.value);
 $('search').oninput=event=>{query=event.target.value;render();};
 $('sound').innerHTML=icon('muted');
 $('sound').onclick=async()=>{
@@ -654,7 +708,10 @@ const notifications=createNotifications({escape:esc,icon,today:()=>today,activeD
     try { audio ??= new AudioContext(); if (!records) await audio.resume(); ping(true); } catch {}
   }});
 const params = new URLSearchParams(location.search);
-if (Object.hasOwn(viewTitles,params.get('view'))) view=params.get('view');
+const pathViews = {'/jogos':'today','/jogos/proximos':'upcoming','/jogos/resultados':'results','/ao-vivo':'live','/campeonatos':'competitions','/times':'teams','/favoritos':'favorites'};
+const requestedView = pathViews[location.pathname.replace(/\/$/,'')] ?? params.get('view');
+if (Object.hasOwn(viewTitles,requestedView)) view=requestedView;
+if (/^(?:[1-7]|30)$/.test(params.get('range') ?? '')) range=Number(params.get('range'));
 agenda = ['home','upcoming','results','teams','competitions'].includes(view);
 if (['live','favorites'].includes(view)) mode=view;
 document.querySelectorAll('[data-view]').forEach(link=>{
@@ -666,14 +723,20 @@ if (/^(?:api|open|espn)-\d+$/.test(routeMatch ?? '')) {
   document.body.classList.add('show-match-page');
   $('match-page').parentElement.classList.add('match-page-active');
 }
-if (/^\d+$/.test(params.get('competition') ?? '') && /^20\d\d$/.test(params.get('season') ?? '')) {
-  competition={id:Number(params.get('competition')),season:Number(params.get('season')),name:'Campeonato'};
+const competitionRoute=/^\/campeonatos\/(\d+)\/?$/.exec(location.pathname);
+const teamRoute=/^\/times\/(\d+)\/(\d+)\/?$/.exec(location.pathname);
+const competitionId=competitionRoute?.[1] ?? teamRoute?.[1] ?? params.get('competition');
+if (/^\d+$/.test(competitionId ?? '')) {
+  const id=Number(competitionId);
+  const defaultSeason=Number(today.slice(0,4))-(![13,71,73].includes(id)&&Number(today.slice(5,7))<7?1:0);
+  competition={id,season:/^20\d\d$/.test(params.get('season') ?? '')?Number(params.get('season')):defaultSeason,name:'Campeonato'};
   view='competition';
   agenda=true;
-  if (/^\d+$/.test(params.get('team') ?? '')) {
-    teamId=params.get('team');
-    competitionTab='games';
-  }
+  const requestedTeam=teamRoute?.[2] ?? params.get('team');
+  if (/^\d+$/.test(requestedTeam ?? '')) teamId=requestedTeam;
+  const tab=params.get('tab');
+  round=params.get('round') ?? '';
+  competitionTab=['overview','games','table','stats'].includes(tab)?tab:teamId||round?'games':'overview';
 }
 const restored = !matchPageId && history.state?.returnFromMatch ? history.state : null;
 const initialDate = restored?.date ?? params.get('date');
@@ -686,5 +749,7 @@ if (restored) {
   render();
 }
 if (matchPageId) void loadMatch();
+if (competitionTab==='table') void loadStandings();
+if (matchMedia('(max-width: 690px)').matches) document.querySelector('.feed').open=false;
 void loadCompetitionCatalog();
 

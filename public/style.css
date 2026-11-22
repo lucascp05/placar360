@@ -129,3 +129,14 @@
  .form-guide a { padding:.25rem .55rem; background:var(--raised); color:var(--accent); }
  #match-page .tabs { flex-wrap:wrap; }
  @media(max-width:890px) { .mobile-section { display:inline-flex; align-items:center; } }
+#games-navigation { gap:.5rem; margin:.75rem 0; }
+#games-navigation a { padding:.6rem .75rem; color:var(--muted); text-decoration:none; }
+#games-navigation a[aria-current] { color:var(--accent); border-bottom:2px solid var(--accent); }
+.round-navigation { display:flex; gap:.35rem; overflow:auto; margin:.75rem 0; padding:.2rem 0 .5rem; }
+.round-navigation button { flex:none; padding:.55rem .75rem; }
+.round-navigation button[aria-pressed=true] { color:var(--accent); background:var(--raised); }
+.round-navigation small { color:var(--accent); }
+.feed-top { cursor:pointer; }
+.feed:not([open]) .feed-top { border-bottom:0; }
+#more-results { margin:1rem 0; }
+@media(max-width:690px) { .mobile-nav { grid-template-columns:repeat(6,minmax(0,1fr)); } }

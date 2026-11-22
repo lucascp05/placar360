@@ -18,13 +18,11 @@
 <aside class="sidebar" aria-label="Navegação por campeonato">
 <div class="side-label">EXPLORAR</div>
 <a class="side-button" href="/" data-view="home"><span data-icon="grid"></span> Início</a>
-<a class="side-button" href="/?view=live" data-view="live"><span data-icon="pulse"></span> Ao vivo <b id="side-live">0</b></a>
-<a class="side-button" href="/?view=today" data-view="today"><span data-icon="calendar"></span> Jogos de hoje</a>
-<a class="side-button" href="/?view=upcoming" data-view="upcoming"><span data-icon="calendar"></span> Próximos jogos</a>
-<a class="side-button" href="/?view=results" data-view="results"><span data-icon="clock"></span> Resultados anteriores</a>
-<a class="side-button" href="/?view=competitions" data-view="competitions"><span data-icon="trophy"></span> Campeonatos</a>
-<a class="side-button" href="/?view=teams" data-view="teams"><span data-icon="ball"></span> Times</a>
-<a class="side-button" href="/?view=favorites" data-view="favorites"><span data-icon="star"></span> Favoritos</a>
+<a class="side-button" href="/ao-vivo" data-view="live"><span data-icon="pulse"></span> Ao vivo <b id="side-live">0</b></a>
+<a class="side-button" href="/jogos" data-view="today"><span data-icon="calendar"></span> Jogos</a>
+<a class="side-button" href="/campeonatos" data-view="competitions"><span data-icon="trophy"></span> Campeonatos</a>
+<a class="side-button" href="/times" data-view="teams"><span data-icon="ball"></span> Times</a>
+<a class="side-button" href="/favoritos" data-view="favorites"><span data-icon="star"></span> Favoritos</a>
 <button class="side-button" data-settings><span data-icon="settings"></span> Configurações</button>
 <div class="side-label league-label">CAMPEONATOS</div>
 <div id="leagues"></div>
@@ -34,16 +32,15 @@
 <section id="match-page" hidden aria-labelledby="match-title"></section>
 <div class="section-header"><div><div class="eyebrow" id="section-label"><span></span> PLACAR DO DIA</div><div class="profile-title"><span id="profile-crest" hidden></span><h1 id="heading">Partidas</h1></div></div><div id="date-label" class="date-label"></div></div>
 <div class="date-panel"><button id="prev" class="icon-button" aria-label="Dia anterior"><span data-icon="left"></span></button><div id="days" class="days"></div><button id="next" class="icon-button" aria-label="Próximo dia"><span data-icon="right"></span></button><label class="calendar" title="Escolher data"><span data-icon="calendar"></span><input id="date" type="date" aria-label="Escolher data"></label></div>
-<div id="range" class="tabs calendar-range" aria-label="Período do calendário" hidden><button data-range="1">Amanhã</button><button data-range="7">7 dias</button><button data-range="30">30 dias</button><button data-calendar-step="-1">Período anterior</button><button data-calendar-step="1">Próximo período</button></div>
+<nav id="games-navigation" class="tabs" aria-label="Jogos" hidden><a href="/jogos" data-view="today">Hoje</a><a href="/jogos/proximos" data-view="upcoming">Próximos</a><a href="/jogos/resultados" data-view="results">Resultados anteriores</a></nav>
+<div id="range" class="tabs calendar-range" aria-label="Período do calendário" hidden><button data-range="1" data-offset="0" data-window="upcoming">Hoje</button><button data-range="1" data-offset="1" data-window="upcoming">Amanhã</button><button id="current-week" data-window="upcoming">Esta semana</button><button data-range="7" data-offset="0" data-window="upcoming">7 dias</button><button data-range="30" data-offset="0" data-window="upcoming">30 dias</button><button data-range="1" data-offset="-1" data-window="results">Ontem</button><button data-range="7" data-offset="-1" data-window="results">Última semana</button><button data-range="30" data-offset="-1" data-window="results">30 dias</button><button data-calendar-step="-1">Período anterior</button><button data-calendar-step="1">Próximo período</button></div>
+<div id="round-navigation" class="tabs round-navigation" aria-label="Rodadas e fases" hidden></div>
 <div class="filters">
 <div class="tabs" aria-label="Filtro de partidas"><button data-mode="all" class="selected">Todas</button><button data-mode="live"><i></i> Ao vivo</button><button data-mode="favorites"><span data-icon="star"></span> Favoritos</button></div>
 <label class="search"><span data-icon="search"></span><input id="search" type="search" placeholder="Times, campeonatos e jogos" aria-label="Buscar times, campeonatos e jogos"></label>
 <select id="league-select" aria-label="Campeonato"><option value="">Todos os campeonatos</option></select>
 <select id="team-filter" aria-label="Equipe" hidden><option value="">Todas as equipes</option></select>
 <div class="tools">
-<a class="utility mobile-section" href="/?view=today">Hoje</a>
-<a class="utility mobile-section" href="/?view=results">Resultados</a>
-<a class="utility mobile-section" href="/?view=teams">Times</a>
 <button class="utility" data-agenda><span data-icon="calendar"></span> Agenda</button>
 <button class="utility" data-settings><span data-icon="settings"></span> Configurações</button>
 <select id="status-filter" aria-label="Status da partida"><option value="">Qualquer status</option><option value="scheduled">Agendadas</option><option value="live">Ao vivo</option><option value="final">Encerradas</option><option value="other">Adiados e outros</option></select>
@@ -55,20 +52,22 @@
 <div id="explore-content" hidden></div>
 <div id="results-meta" class="results-meta"></div>
 <div id="matches" aria-live="polite"></div>
+<button type="button" id="more-results" class="utility" hidden>Carregar mais resultados</button>
 </section>
-<aside class="feed" aria-labelledby="feed-heading">
-<div class="feed-top"><div class="feed-icon" data-icon="pulse"></div><div><div class="eyebrow">TEMPO REAL</div><h2 id="feed-heading">Central de eventos</h2></div></div>
+<details class="feed" open>
+<summary class="feed-top"><div class="feed-icon" data-icon="pulse"></div><h2 id="feed-heading">Central de eventos</h2></summary>
 <div id="feed-content"></div>
 <div class="feed-footer"><span id="updated">Aguardando dados</span><span id="latency"></span></div>
-</aside>
+</details>
 <footer class="footer"><span>PLACAR<span class="accent">360</span></span><span id="attribution"></span><span>Horários de Brasília</span></footer>
 </main>
 <nav class="mobile-nav" aria-label="Navegação principal">
 <a href="/" data-view="home"><span data-icon="grid"></span>Início</a>
-<a href="/?view=live" data-view="live"><span data-icon="pulse"></span>Ao vivo</a>
-<a href="/?view=upcoming" data-view="upcoming"><span data-icon="calendar"></span>Agenda</a>
-<a href="/?view=competitions" data-view="competitions"><span data-icon="trophy"></span>Ligas</a>
-<a href="/?view=favorites" data-view="favorites"><span data-icon="star"></span>Favoritos</a>
+<a href="/ao-vivo" data-view="live"><span data-icon="pulse"></span>Ao vivo</a>
+<a href="/jogos" data-view="today"><span data-icon="calendar"></span>Jogos</a>
+<a href="/campeonatos" data-view="competitions"><span data-icon="trophy"></span>Ligas</a>
+<a href="/times" data-view="teams"><span data-icon="ball"></span>Times</a>
+<a href="/favoritos" data-view="favorites"><span data-icon="star"></span>Favoritos</a>
 </nav>
 <dialog id="settings">
 <form method="dialog">
