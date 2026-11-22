@@ -202,6 +202,7 @@ export function createSource(key, limit) {
     leagues:key ? southAmericanLeagues : [...openLeagues,...southAmericanLeagues],
     supplemental:key ? null : 'ESPN',
     standings:(id,season)=>espn.standings(id,season),
+    roster:(id,team,season)=>key ? null : espn.roster(id,team,season),
     async initialize() {
       return (await Promise.all(openFeeds.map(feed=>feed.initialize()))).flat();
     },

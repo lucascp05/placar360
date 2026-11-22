@@ -114,9 +114,27 @@ createServer(async (req,res)=>{
     res.end(JSON.stringify({leagues:source.leagues}));
     return;
   }
-  if (!['/api/stream','/api/status','/api/calendar','/api/match','/api/standings'].includes(url.pathname)) { res.writeHead(404).end(); return; }
+  if (!['/api/stream','/api/status','/api/calendar','/api/match','/api/standings','/api/roster'].includes(url.pathname)) { res.writeHead(404).end(); return; }
   const date = url.searchParams.get('date') ?? dateOf(Date.now());
   if (!validDay(date)) { res.writeHead(400).end(); return; }
+  if (url.pathname==='/api/roster') {
+    const league=Number(url.searchParams.get('league'));
+    const team=Number(url.searchParams.get('team'));
+    const season=Number(url.searchParams.get('season'));
+    if (!priority.includes(league) || !Number.isSafeInteger(team) || team<1 || !Number.isInteger(season) || season<2000 || season>2099) {
+      res.writeHead(400).end();
+      return;
+    }
+    res.setHeader('Content-Type','application/json; charset=utf-8');
+    res.setHeader('Cache-Control','no-store');
+    try {
+      const roster=await source.roster(league,team,season);
+      res.end(JSON.stringify({players:roster?.value ?? [],cached:roster?.cached, error:roster?.error}));
+    } catch (error) {
+      res.writeHead(503).end(JSON.stringify({error:error.message}));
+    }
+    return;
+  }
   if (url.pathname==='/api/standings') {
     const id = Number(url.searchParams.get('league'));
     const season = Number(url.searchParams.get('season'));

@@ -20,7 +20,7 @@ No PowerShell, use `npm.cmd start` se a política de execução bloquear `npm.ps
 - O calendário futuro oferece hoje, amanhã, esta semana e janelas de sete e 30 dias. Filtre por campeonato, equipe e status.
 - Em `/campeonatos/<id>`, o Placar360 carrega a temporada selecionada. A Visão geral reúne resultados recentes, partidas ao vivo e próximos jogos. A aba Jogos reúne a agenda por rodada ou fase, com placar agregado nas eliminatórias de ida e volta quando os dois placares são conhecidos.
 - Clique em um jogo para abrir sua página em `/partidas/<id>?date=<data>`. Resumo, Linha do tempo, Estatísticas, Escalações, Confrontos e Desempenho recente apresentam a cobertura disponível. É possível favoritar, copiar o link e voltar à consulta anterior.
-- Abra um perfil de time pelo nome da equipe. Consulte sua agenda na competição selecionada, próximas partidas e os resultados usados para mostrar a forma recente.
+- Abra um perfil de time pelo nome da equipe. Consulte a agenda, a forma recente, os resultados e a posição publicada quando disponível. A aba Elenco apresenta os jogadores que a ESPN lista para a temporada nas competições cobertas.
 - Pesquise equipes, campeonatos e partidas na janela carregada. Salve links de partidas, times e campeonatos em Favoritos. Os links e as preferências de tema e densidade ficam no navegador. O cabeçalho permite ativar som de gol.
 
 ## Alertas de partidas

@@ -32,7 +32,7 @@ let matches = new Map(), highlights = new Map(), arrivals = new Map(), sound = f
 let connected = false, initialized = false, status = {}, delivery = null;
 let agenda = false, competition = null, calendar = [], calendarRequest, calendarQuery, calendarLoaded = false, round = '';
 let competitionTab = 'overview', competitionCatalog = [], restoredTeam = '';
-let publishedStandings, standingsPending;
+let publishedStandings, standingsPending, clubRoster, rosterPending;
 let matchPageId, matchSnapshot, matchPageError, matchTab = 'summary', teamId, matchContext, contextPending;
 const viewTitles = {home:'Central de futebol',today:'Jogos de hoje',live:'Ao vivo',upcoming:'Próximos jogos',results:'Resultados anteriores',competitions:'Campeonatos',teams:'Times',favorites:'Favoritos'};
 let view = 'home', range = 7, resultLimit = 50, calendarError = '';
@@ -187,18 +187,36 @@ async function loadStandings() {
     publishedStandings={error:'Classificação temporariamente indisponível.'};
   } finally { standingsPending=false; render(); }
 }
+async function loadRoster() {
+  if (!teamId || rosterPending || clubRoster?.players?.length) return;
+  rosterPending=true;
+  render();
+  try {
+    const response=await fetch('/api/roster?'+new URLSearchParams({league:competition.id,team:teamId,season:competition.season}),
+      {signal:AbortSignal.timeout(22000)});
+    const data=await response.json();
+    if (!response.ok) throw Error(data.error);
+    clubRoster=data;
+  } catch {
+    clubRoster={error:'Não foi possível consultar o elenco. Selecione a aba para tentar novamente.'};
+  } finally { rosterPending=false; render(); }
+}
 function renderCompetition(list) {
   const panel = $('competition-panel');
   panel.hidden = !competition;
   if (!competition) return;
   const leagueInfo = list[0]?.league ?? competitionCatalog.find(league=>league.id===competition.id) ?? competition;
+  const selectedTeam = teamId && list.flatMap(m=>[m.home,m.away]).find(t=>String(t.id)===teamId);
+  const profileMatches = teamId ? list.filter(m=>[m.home.id,m.away.id].some(id=>String(id)===teamId)) : list;
   const tabs = [['overview','Visão geral'],['games','Jogos'],['table','Classificação'],['stats','Estatísticas']];
+  if (teamId) tabs.push(['roster','Elenco']);
   let content = '';
   if (competitionTab==='overview' && list.length) {
-    const final = list.filter(m=>m.status==='final');
-    const live = list.filter(m=>m.status==='live');
-    const upcoming = list.filter(m=>m.status==='scheduled' && m.kickoff && Date.parse(m.kickoff)>=Date.now());
-    content = '<div class="competition-summary">'+[[final.at(-1),'Último resultado'],[live[0] ?? upcoming[0],live.length?'Em andamento':'Próxima partida']].map(([match,label])=>match ? '<div><small>'+label+'</small><strong>'+esc(match.home.name)+' × '+esc(match.away.name)+'</strong><span>'+esc(roundName(match.round))+'</span></div>' : '').join('')+'</div>';
+    const final = profileMatches.filter(m=>m.status==='final');
+    const live = profileMatches.filter(m=>m.status==='live');
+    const upcoming = profileMatches.filter(m=>m.status==='scheduled' && m.kickoff && Date.parse(m.kickoff)>=Date.now());
+    const leaders=publishedStandings?.groups?.filter(group=>group.rows.length).map(group=>'<div><small>'+esc(group.name || 'Classificação')+'</small><strong>'+esc(group.rows[0].name)+'</strong><span>'+group.rows[0].points+' pontos</span></div>').join('') ?? '';
+    content = '<div class="competition-summary">'+[[final.at(-1),'Último resultado'],[live[0] ?? upcoming[0],live.length?'Em andamento':'Próxima partida']].map(([match,label])=>match ? '<div><small>'+label+'</small><a href="'+matchLink(match)+'"><strong>'+esc(match.home.name)+' × '+esc(match.away.name)+'</strong></a><span>'+esc(roundName(match.round))+'</span></div>' : '').join('')+(teamId?'':leaders)+'</div>';
   }
   if (competitionTab==='table' && [71,13].includes(competition.id)) {
     const groups = publishedStandings?.groups ?? [];
@@ -227,8 +245,9 @@ function renderCompetition(list) {
   }
   if (competitionTab==='stats') {
     const scorers = new Map();
-    for (const match of list.filter(m=>m.status==='final')) for (const event of match.events) {
+    for (const match of profileMatches.filter(m=>m.status==='final')) for (const event of match.events) {
       if (event.kind!=='Gol' || !event.player || ['Missed Penalty','Own Goal'].includes(event.detail)) continue;
+      if (selectedTeam && event.team!==selectedTeam.id) continue;
       const key = JSON.stringify([event.team,event.player]);
       const row = scorers.get(key) ?? {name:event.player,team:[match.home,match.away].find(t=>t.id===event.team)?.name,goals:0};
       row.goals++;
@@ -236,18 +255,23 @@ function renderCompetition(list) {
     }
     content = scorers.size ? '<p class="calendar-note">Artilharia dos jogos encerrados com autores de gols informados na agenda.</p><table class="data-table"><thead><tr><th scope="col">Jogador</th><th scope="col">Clube</th><th scope="col">Gols</th></tr></thead><tbody>'+[...scorers.values()].sort((a,b)=>b.goals-a.goals).slice(0,30).map(row=>'<tr><th scope="row">'+esc(row.name)+'</th><td>'+esc(row.team ?? '—')+'</td><td>'+row.goals+'</td></tr>').join('')+'</tbody></table>' : '<p class="calendar-note">A agenda desta temporada não informou artilharia.</p>';
   }
-  const selectedTeam = teamId && list.flatMap(m=>[m.home,m.away]).find(t=>String(t.id)===teamId);
+  if (competitionTab==='roster') {
+    const players=clubRoster?.players ?? [];
+    content=players.length ? '<table class="data-table"><caption>Elenco publicado pela ESPN · Temporada '+competition.season+'</caption><thead><tr><th scope="col">Nº</th><th scope="col">Jogador</th><th scope="col">Posição</th></tr></thead><tbody>'+players.map(p=>'<tr><td>'+esc(p.number ?? '–')+'</td><th scope="row">'+esc(p.name)+'</th><td>'+esc(p.position || '–')+'</td></tr>').join('')+'</tbody></table>'
+      : '<p class="calendar-note" role="status">'+esc(rosterPending?'Consultando elenco…':clubRoster?.error ?? 'Elenco indisponível para este clube e temporada.')+'</p>';
+  }
   if (selectedTeam && competitionTab==='games') {
-    const fixtures = list.filter(m=>[m.home.id,m.away.id].includes(selectedTeam.id));
+    const fixtures = profileMatches;
     const finals = fixtures.filter(m=>m.status==='final' && m.score.every(Number.isFinite));
     const latest = finals.slice(-5).reverse();
     const differences=finals.map(m=>m.home.id===selectedTeam.id?m.score[0]-m.score[1]:m.score[1]-m.score[0]);
     const next = fixtures.find(m=>m.status==='live') ?? fixtures.find(m=>m.status==='scheduled' && Date.parse(m.kickoff)>=Date.now());
+    const position=publishedStandings?.groups?.flatMap(group=>group.rows).find(row=>row.team===selectedTeam.id);
     content = '<div class="competition-summary">'+(latest.length?'<div><small>Últimos resultados</small><div class="form-guide">'+latest.map(m=>{
       const index = m.home.id===selectedTeam.id ? 0 : 1;
       const diff = m.score[index]-m.score[1-index];
       return '<a href="'+matchLink(m)+'" aria-label="'+esc(m.home.name+' '+m.score.join(' : ')+' '+m.away.name)+'">'+(diff>0?'V':diff===0?'E':'D')+'</a>';
-    }).join('')+'</div></div>':'')+(next?'<div><small>'+(next.status==='live'?'Em jogo':'Próxima partida')+'</small><a href="'+matchLink(next)+'">'+esc(next.home.name+' × '+next.away.name)+'</a></div>':'')+(finals.length?'<div><small>Temporada '+competition.season+'</small><strong>'+differences.filter(n=>n>0).length+' V · '+differences.filter(n=>n===0).length+' E · '+differences.filter(n=>n<0).length+' D</strong><span>'+finals.length+' jogos com placar</span></div>':'')+'</div>';
+    }).join('')+'</div></div>':'')+(next?'<div><small>'+(next.status==='live'?'Em jogo':'Próxima partida')+'</small><a href="'+matchLink(next)+'">'+esc(next.home.name+' × '+next.away.name)+'</a></div>':'')+(finals.length?'<div><small>Temporada '+competition.season+'</small><strong>'+differences.filter(n=>n>0).length+' V · '+differences.filter(n=>n===0).length+' E · '+differences.filter(n=>n<0).length+' D</strong><span>'+finals.length+' jogos com placar</span></div>':'')+(position?'<div><small>Classificação publicada</small><strong>'+position.rank+'º lugar</strong><span>'+position.points+' pontos</span></div>':'')+'</div>';
   }
   const key = teamId ? 'team-'+competition.id+'-'+teamId : 'competition-'+competition.id;
   const saved = savedEntries.has(key);
@@ -630,6 +654,7 @@ document.addEventListener('click',event=>{
     syncCompetitionURL();
     render();
     if (competitionTab==='table') void loadStandings();
+    if (competitionTab==='roster') void loadRoster();
     $('competition-panel').querySelector('[aria-pressed="true"]')?.focus();
   }
   if (button.hasAttribute('data-favorite-match')) {
@@ -764,7 +789,7 @@ if (/^\d+$/.test(competitionId ?? '')) {
   if (/^\d+$/.test(requestedTeam ?? '')) teamId=requestedTeam;
   const tab=params.get('tab');
   round=params.get('round') ?? '';
-  competitionTab=['overview','games','table','stats'].includes(tab)?tab:teamId||round?'games':'overview';
+  competitionTab=['overview','games','table','stats',...(teamId?['roster']:[])].includes(tab)?tab:teamId||round?'games':'overview';
 }
 document.querySelectorAll('[data-view]').forEach(link=>{
   if (matchPageId) return;
@@ -784,7 +809,8 @@ if (restored) {
   render();
 }
 if (matchPageId) void loadMatch();
-if (competitionTab==='table') void loadStandings();
+if (competition && (competitionTab==='table' || competitionTab==='overview' || teamId)) void loadStandings();
+if (competitionTab==='roster') void loadRoster();
 if (matchMedia('(max-width: 690px)').matches) document.querySelector('.feed').open=false;
 void loadCompetitionCatalog();
 

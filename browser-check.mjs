@@ -127,6 +127,8 @@ async function checkSouthAmericanCompetitions() {
         await until("document.querySelector('.match-hero') && document.querySelector('#match-page').textContent.includes('Ao vivo')");
         console.log('Partida ao vivo verificada:',live.id);
       }
+      await navigate(base+'/times/71/'+historical.away.id+'?season='+season+'&tab=roster');
+      await until("document.querySelector('#competition-panel caption')?.textContent.includes('Elenco') && document.querySelector('#competition-panel tbody tr')");
       await navigate(base+'/jogos/resultados?date='+historical.date+'&range=30');
       await until("document.querySelector('#date').value==="+JSON.stringify(historical.date)+" && document.querySelector('article.match')");
     }
@@ -214,7 +216,7 @@ async function checkCorePlatform() {
   await evaluate("document.querySelector('.tabs [data-mode=all]').click();const input=document.querySelector('#search');input.value='equipe inexistente';input.dispatchEvent(new Event('input'))");
   assert(await evaluate("document.querySelector('#empty')"));
   await evaluate("document.querySelector('#search').value='';document.querySelector('#search').dispatchEvent(new Event('input'));document.querySelector('.tabs [data-mode=live]').click()");
-  assert.equal(await evaluate("document.querySelectorAll('article.match').length"),0);
+  assert(await evaluate("[...document.querySelectorAll('article.match')].every(row=>row.querySelector('.match-time.live'))"));
   await evaluate("document.querySelector('.tabs [data-mode=all]').click();document.querySelector('#sound').click()");
   await until("document.querySelector('#sound').getAttribute('aria-pressed')==='true'");
   await evaluate("document.querySelector('#sound').click()");

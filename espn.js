@@ -236,10 +236,24 @@ export function createEspn(request,dateOf,cacheDirectory) {
             const stats = new Map((entry.stats ?? []).map(stat=>[stat.name,stat.value]));
             const [rank,played,difference,points] = ['rank','gamesPlayed','pointDifferential','points'].map(name=>stats.get(name));
             if (!entry.team?.displayName || ![rank,played,difference,points].every(Number.isFinite)) return [];
-            return [{name:entry.team.displayName,rank,played,difference,points}];
+            return [{team:scoreOf(entry.team.id),name:entry.team.displayName,rank,played,difference,points}];
           }).sort((a,b)=>a.rank-b.rank);
           return {name:group.name?.replace(/^Group /,'Grupo ') ?? '',rows};
         }).filter(group=>group.rows.length);
+      });
+    },
+    async roster(id,team,year) {
+      const league=southAmericanLeagues.find(item=>item.id===id);
+      if (!league) return null;
+      return cached('roster:'+id+':'+team+':'+year,3600000,async()=>{
+        const data=await (await request(site+'site/v2/sports/soccer/'+league.slug+'/teams/'+team+'/roster?season='+year)).json();
+        if (scoreOf(data.team?.id)!==team || data.season?.year!==year || !Array.isArray(data.athletes)) {
+          throw Error('Elenco indisponível para este clube e temporada.');
+        }
+        const positions={G:'Goleiro',D:'Defensor',M:'Meio-campista',F:'Atacante'};
+        return data.athletes.flatMap(player=>player.displayName ? [{
+          name:player.displayName,number:scoreOf(player.jersey),position:positions[player.position?.abbreviation] ?? ''
+        }] : []);
       });
     }
   };
