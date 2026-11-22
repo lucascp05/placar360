@@ -17,6 +17,65 @@ const phases = {
 };
 const scoreOf = value => /^\d+$/.test(String(value)) ? Number(value) : null;
 const crest = value => typeof value==='string' && value.startsWith('https://') ? value : '';
+const statistics = {
+  possessionPct:'Posse de bola',totalShots:'Finalizações',shotsOnTarget:'Finalizações no alvo',
+  wonCorners:'Escanteios',foulsCommitted:'Faltas',offsides:'Impedimentos',yellowCards:'Cartões amarelos',
+  redCards:'Cartões vermelhos',saves:'Defesas',totalPasses:'Passes',accuratePasses:'Passes certos',
+  interceptions:'Interceptações',blockedShots:'Finalizações bloqueadas',totalTackles:'Desarmes'
+};
+const matchPhases = {kickoff:'Início',halftime:'Intervalo','start-2nd-half':'Início do 2º tempo',
+  'start-extra-time':'Início da prorrogação','start-penalty-shootout':'Início da disputa de pênaltis',
+  'end-regular-time':'Fim do tempo regulamentar','end-extra-time':'Fim da prorrogação',
+  'end-penalty-shootout':'Fim da disputa de pênaltis','fulltime':'Encerramento'};
+
+function summaryEvent(item) {
+  const type = item.type?.type ?? '';
+  const phase = matchPhases[type];
+  const kind = phase ? 'Fase' : /var|cancelled|disallowed|overturned/.test(type) ? 'VAR'
+    : /yellow-card|red-card/.test(type) ? 'Cartão' : type==='substitution' ? 'Substituição'
+    : !item.shootout && (item.scoringPlay || /penalty.*miss|miss.*penalty/.test(type)) ? 'Gol'
+    : item.shootout && /penalty/.test(type) ? 'Fase' : null;
+  if (!kind || !item.id) return null;
+  const time = /^(\d+)(?:\s*\+\s*(\d+))?/.exec(item.clock?.displayValue ?? '');
+  const detail = phase ?? (item.shootout?'Disputa de pênaltis':/red-card/.test(type)?'Red Card':/yellow-card/.test(type)?'Yellow Card'
+    : /own-goal/.test(type)?'Own Goal':/penalty.*miss|miss.*penalty/.test(type)?'Missed Penalty'
+    : kind==='Gol'&&/penalty/.test(type)?'Penalty':kind==='VAR'&&/cancelled|disallowed|overturned/.test(type)?'Goal cancelled':'');
+  const [player,assist] = (item.participants ?? []).map(p=>p.athlete?.displayName ?? '');
+  return {id:'espn-event-'+item.id,kind,detail,minute:scoreOf(time?.[1]) ?? (type==='kickoff'?0:null),
+    extra:scoreOf(time?.[2]),team:scoreOf(item.team?.id),player:player ?? '',assist:assist ?? ''};
+}
+
+function normalizeSummary(data, match) {
+  const events = (data.keyEvents ?? []).map(summaryEvent).filter(Boolean);
+  return {...match,
+    detailed:match.detailed || events.length>0,
+    events:events.length ? events : match.events,
+    venue:data.gameInfo?.venue?.fullName ?? match.venue,
+    referee:data.gameInfo?.officials?.find(o=>o.position?.id==='1')?.displayName ?? '',
+    statistics:(data.boxscore?.teams ?? []).flatMap(group=>{
+      const team=scoreOf(group.team?.id);
+      if (team===null) return [];
+      const values=(group.statistics ?? []).flatMap(stat=>statistics[stat.name] && /^\d+(?:\.\d+)?$/.test(stat.displayValue)
+        ? [{label:statistics[stat.name],value:stat.name==='possessionPct'?stat.displayValue+'%':Number(stat.displayValue)}] : []);
+      return values.length ? [{team,values}] : [];
+    }),
+    lineups:(data.rosters ?? []).flatMap(group=>{
+      const team=scoreOf(group.team?.id);
+      if (team===null || !group.roster?.length) return [];
+      const players=group.roster.filter(p=>p.athlete?.displayName).map(p=>({
+        name:p.athlete.displayName,number:scoreOf(p.jersey),order:scoreOf(p.formationPlace),
+        starter:p.starter===true,subbedIn:p.subbedIn===true,subbedOut:p.subbedOut===true
+      }));
+      const starters=players.filter(p=>p.starter).sort((a,b)=>(a.order ?? 99)-(b.order ?? 99));
+      const rows=[1,...String(group.formation ?? '').split('-').map(Number)];
+      if (rows.every(n=>n>0) && rows.reduce((sum,n)=>sum+n,0)===starters.length && starters.every(p=>p.order!==null)) {
+        let offset=0;
+        rows.forEach((count,row)=>{for (let index=0;index<count;index++) starters[offset++].grid=(row+1)+':'+(index+1);});
+      }
+      return [{team,formation:group.formation ?? '',coach:group.coach?.displayName ?? '',starters,substitutes:players.filter(p=>!p.starter)}];
+    })
+  };
+}
 
 function normalize(event, league, dateOf) {
   const c = event?.competitions?.[0];
@@ -65,7 +124,7 @@ export function createEspn(request,dateOf,cacheDirectory) {
     const entry = {pending:true,value:previous?.value};
     entry.promise = Promise.resolve().then(load).then(value=>{
       entry.value=value;
-      entry.expires=Date.now()+ttl;
+      entry.expires=Date.now()+(value?.offline ? 30000 : ttl);
       return {value,cached:false};
     }).catch(error=>{
       entry.expires=Date.now()+30000;
@@ -84,7 +143,9 @@ export function createEspn(request,dateOf,cacheDirectory) {
       const url = site+'site/v2/sports/soccer/'+league.slug+'/scoreboard?dates='+date+'&limit=500';
       const data = await (await request(url)).json();
       if (!Array.isArray(data.events) || data.events.length>=500) throw Error('Calendário ESPN indisponível ou incompleto');
-      return data.events.map(event=>normalize(event,league,dateOf)).filter(Boolean);
+      const matches=data.events.map(event=>normalize(event,league,dateOf)).filter(Boolean);
+      if (data.events.length && !matches.length) throw Error('Formato de partidas da ESPN indisponível.');
+      return matches;
     });
   }
   function season(league,year) {
@@ -115,6 +176,30 @@ export function createEspn(request,dateOf,cacheDirectory) {
       : result);
   }
   return {
+    async fixture(id,date,leagueId,known) {
+      const league = southAmericanLeagues.find(l=>l.id===(known?.league.id ?? leagueId));
+      const candidates = league ? [league] : southAmericanLeagues;
+      const results = await Promise.allSettled(candidates.map(async competition=>{
+        const value = known ?? (await season(competition,date.slice(0,4))).value.find(m=>m.id===id);
+        if (!value) return null;
+        const ttl = value.status==='final' ? 86400000 : value.status==='live' ? 30000 : 300000;
+        try {
+          const result=await cached('match:'+id,ttl,async()=>{
+            const data=await (await request(site+'site/v2/sports/soccer/'+competition.slug+'/summary?event='+id.slice(5))).json();
+            if ('espn-'+data.header?.id!==id) throw Error('Resumo da ESPN indisponível.');
+            return normalizeSummary(data,value);
+          });
+          return {match:result.value,error:result.error};
+        } catch {
+          return {match:value,error:'Detalhes complementares da ESPN temporariamente indisponíveis.'};
+        }
+      }));
+      const found=results.find(result=>result.status==='fulfilled'&&result.value);
+      if (found) return found.value;
+      const error=results.find(result=>result.status==='rejected');
+      if (error) throw error.reason;
+      return null;
+    },
     async calendar(from,to,id,year) {
       const leagues = southAmericanLeagues.filter(l=>!id || l.id===id);
       const years = new Set(id ? [String(year)] : [from.slice(0,4),to.slice(0,4)]);

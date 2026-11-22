@@ -56,7 +56,7 @@ export function normalizeApi(raw) {
       team:s.team.id, values:(s.statistics ?? []).filter(v=>v?.type && v.value != null).map(v=>({label:v.type,value:v.value}))
     })) : [],
     lineups:Array.isArray(lineups) ? lineups.filter(l=>l?.team?.id).map(l=>({
-      team:l.team.id, formation:asText(l.formation),
+      team:l.team.id, formation:asText(l.formation),coach:asText(l.coach?.name),
       starters:(l.startXI ?? []).flatMap(({player})=>player?.name ? [{name:player.name,number:player.number,grid:player.grid}] : []),
       substitutes:(l.substitutes ?? []).flatMap(({player})=>player?.name ? [{name:player.name,number:player.number}] : [])
     })) : [],
@@ -205,12 +205,11 @@ export function createSource(key, limit) {
     async initialize() {
       return (await Promise.all(openFeeds.map(feed=>feed.initialize()))).flat();
     },
-    async fixture(id,date) {
+    async fixture(id,date,league,known) {
       if (!key && id.startsWith('espn-')) {
-        const calendar = await espn.calendar(date,date);
-        const match = calendar.matches.find(m=>m.id===id);
-        if (!match && calendar.error) throw Error(calendar.error);
-        return match ?? null;
+        if (league || known) return espn.fixture(id,date,league,known);
+        const result = await espn.fixture(id,date);
+        return result?.match ?? null;
       }
       if (!key) return Promise.resolve(null);
       const cached = details.get(id);

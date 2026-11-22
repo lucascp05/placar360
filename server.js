@@ -143,8 +143,10 @@ createServer(async (req,res)=>{
     try {
       if (key && id.startsWith('api-') && (!match?.detailed || !match?.lineups?.length)) {
         match = await source.fixture(id) ?? match;
-      } else if (!match && !key && id.startsWith('espn-')) {
-        match = await source.fixture(id,date);
+      } else if (!key && id.startsWith('espn-')) {
+        const detail = await source.fixture(id,date,Number(url.searchParams.get('league')) || -1,match);
+        match = detail?.match ?? match;
+        error = detail?.error;
       } else if (!match && !key && id.startsWith('open-')) {
         const agenda = await source.calendar(date,date);
         match = agenda.matches.find(m=>m.id===id);
