@@ -172,7 +172,6 @@ createServer(async (req,res)=>{
       const result = await source.calendar(from,to,league,season);
       const matches = new Map(result.matches.map(match=>[match.id,match]));
       for (const entry of days.values()) if (entry.updated) {
-        for (const match of matches.values()) if (match.date===entry.date && !match.id.startsWith('espn-')) matches.delete(match.id);
         for (const match of entry.matches) matches.set(match.id,match);
       }
       const visible = [...matches.values()].filter(m=>league ? m.league.id===league&&m.league.season===season : m.date>=from&&m.date<=to);

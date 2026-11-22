@@ -107,17 +107,11 @@ function createOpenFeed(league, request) {
   const normalize = rows => rows.map(row=>normalizeOpen(row,league)).filter(Boolean);
   const seasons = new Map();
   const pending = new Map();
-  let previousPoll = 0;
+  const previousPoll = new Map();
   return {
     seasons,
     schedule(season) {
-      if (league.season && league.season!==season) return Promise.resolve([]);
-      if (seasons.has(season)) return Promise.resolve(seasons.get(season).matches);
-      if (!pending.has(season)) {
-        const result = this.collect(season+'-08-01',[]).finally(()=>pending.delete(season));
-        pending.set(season,result);
-      }
-      return pending.get(season);
+      return this.collect(season+'-08-01',[],true);
     },
     async initialize() {
       try {
@@ -129,7 +123,7 @@ function createOpenFeed(league, request) {
         return matches;
       } catch { return []; }
     },
-    async collect(day, known) {
+    async collect(day, known, schedule = false) {
       const now = Date.now();
       const season = openSeason(day);
       if (league.season && league.season!==season) return [];
@@ -137,29 +131,34 @@ function createOpenFeed(league, request) {
       const current = day === dateOf(now);
       const round = current && known.find(m=>m.league.id===league.id && m.status!=='final'
         && (m.status==='live'||Math.abs(now-Date.parse(m.kickoff))<3*3600000))?.roundOrder;
-      if (now-previousPoll<30000) {
+      if (pending.has(season)) return pending.get(season);
+      if (now-(previousPoll.get(season) ?? 0)<30000) {
         if (cached) return cached.matches;
         throw Error('Aguardando intervalo de consulta');
       }
       const recent = cached && now-cached.updated<6*3600000;
-      if (cached && (!current || (recent && !round))) return cached.matches;
-      previousPoll = now;
+      if (cached && ((!current && !schedule) || (recent && !round))) return cached.matches;
+      previousPoll.set(season,now);
       const partial = recent && round;
       const url = 'https://api.openligadb.de/getmatchdata/'+league.shortcut+'/'+season+(partial ? '/'+round : '');
+      const result = (async()=>{
       const rows = await (await request(url)).json();
       if (!Array.isArray(rows)) throw Error('Agenda da fonte inválida');
       const matches = normalize(rows);
-      if (rows.length && !matches.length) throw Error('Agenda da fonte inválida');
+      if (rows.length && !matches.length || !matches.length && cached?.matches.length) throw Error('Agenda da fonte vazia ou inválida');
       if (partial) {
         cached.matches = [...new Map([...cached.matches,...matches].map(m=>[m.id,m])).values()];
         return cached.matches;
       }
       if (seasons.size>=5 && !seasons.has(season)) seasons.delete(seasons.keys().next().value);
       seasons.set(season,{matches,updated:now});
-      if (current && rows.length) {
+      if (season===openSeason(dateOf(now)) && rows.length) {
         try { await writeFile(temporary,JSON.stringify(rows)); await rename(temporary,file); } catch {}
       }
       return matches;
+      })().finally(()=>pending.delete(season));
+      pending.set(season,result);
+      return result;
     }
   };
 }
@@ -173,10 +172,15 @@ export function createSource(key, limit) {
   }
   const openFeeds = key ? [] : openLeagues.map(league=>createOpenFeed(league,request));
   const espn = createEspn(async url=>{
-    const response = await fetch(url,{signal:AbortSignal.timeout(2500)});
+    const response = await request(url).catch(error=>{
+      if (/HTTP 4\d\d/.test(error.message)) throw error;
+      return request(url);
+    }).catch(error=>{
+      throw Error(error.cause?.code ? 'Conexão com a ESPN indisponível ('+error.cause.code+').' : 'ESPN: '+error.message);
+    });
     if (!response.ok) throw Error('ESPN respondeu HTTP '+response.status);
     return response;
-  },dateOf);
+  },dateOf,new URL('./.espn-cache/',import.meta.url));
   async function apiFixtures(query) {
     const nowDay = new Date().toISOString().slice(0,10);
     if (quotaDay !== nowDay) { quotaDay = nowDay; used = 0; remaining = limit; }

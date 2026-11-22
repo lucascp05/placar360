@@ -5,3 +5,4 @@ bundesliga-cache.tmp
 .browser-test-profile/
 openliga-*.json
 openliga-*.tmp
+.espn-cache/

@@ -1,4 +1,5 @@
 import { brasileiraoRound } from './brasileirao-rounds.js';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 
 export const southAmericanLeagues = [
   {id:71, slug:'bra.1', name:'Brasileirão Série A', country:'Brasil'},
@@ -56,7 +57,7 @@ function normalize(event, league, dateOf) {
   };
 }
 
-export function createEspn(request,dateOf) {
+export function createEspn(request,dateOf,cacheDirectory) {
   const entries = new Map();
   function cached(key,ttl,load) {
     const previous = entries.get(key);
@@ -86,7 +87,33 @@ export function createEspn(request,dateOf) {
       return data.events.map(event=>normalize(event,league,dateOf)).filter(Boolean);
     });
   }
-  const season = (league,year)=>fixtures(league,year,900000);
+  function season(league,year) {
+    return cached('season:'+league.slug+':'+year,900000,async()=>{
+      const file = cacheDirectory && new URL(league.slug+'-'+year+'.json',cacheDirectory);
+      try {
+        const result = await fixtures(league,year,900000);
+        if (result.error) throw Error(result.error);
+        if (file && result.value.length) {
+          const temporary = new URL(file.href+'.tmp');
+          try {
+            await mkdir(cacheDirectory,{recursive:true});
+            await writeFile(temporary,JSON.stringify(result.value));
+            await rename(temporary,file);
+          } catch {}
+        }
+        if (result.value.length || !file) return result.value;
+        const previous = await readFile(file,'utf8').then(JSON.parse).catch(()=>null);
+        if (!previous?.length) return result.value;
+        throw Error('A ESPN retornou uma temporada vazia após publicar partidas.');
+      } catch (error) {
+        const previous = await readFile(file,'utf8').then(JSON.parse).catch(()=>null);
+        if (Array.isArray(previous) && previous.length) return {offline:previous};
+        throw error;
+      }
+    }).then(result=>result.value?.offline
+      ? {value:result.value.offline,cached:true,error:'Agenda ESPN em cache'}
+      : result);
+  }
   return {
     async calendar(from,to,id,year) {
       const leagues = southAmericanLeagues.filter(l=>!id || l.id===id);
