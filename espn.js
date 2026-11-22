@@ -63,14 +63,18 @@ function normalizeSummary(data, match) {
       const team=scoreOf(group.team?.id);
       if (team===null || !group.roster?.length) return [];
       const players=group.roster.filter(p=>p.athlete?.displayName).map(p=>({
-        name:p.athlete.displayName,number:scoreOf(p.jersey),order:scoreOf(p.formationPlace),
+        name:p.athlete.displayName,number:scoreOf(p.jersey),position:p.position?.abbreviation ?? '',
         starter:p.starter===true,subbedIn:p.subbedIn===true,subbedOut:p.subbedOut===true
       }));
-      const starters=players.filter(p=>p.starter).sort((a,b)=>(a.order ?? 99)-(b.order ?? 99));
-      const rows=[1,...String(group.formation ?? '').split('-').map(Number)];
-      if (rows.every(n=>n>0) && rows.reduce((sum,n)=>sum+n,0)===starters.length && starters.every(p=>p.order!==null)) {
-        let offset=0;
-        rows.forEach((count,row)=>{for (let index=0;index<count;index++) starters[offset++].grid=(row+1)+':'+(index+1);});
+      const starters=players.filter(p=>p.starter);
+      const formationRows=['G','D','M','AM','F'].map(role=>starters.filter(({position})=>({
+        G:/^G$/,D:/^(?:[LR]B|[LR]WB|[C]?[DB])(?:-|$)/,M:/^(?:[LRCD]M|M)(?:-|$)/,
+        AM:/^AM(?:-|$)/,F:/^(?:[LR]W|[CS]F|F|S)(?:-|$)/
+      })[role].test(position))).filter(row=>row.length);
+      const expected='1-'+(group.formation ?? '');
+      if (formationRows.map(row=>row.length).join('-')===expected) {
+        const flank=({position})=>/^(?:L[BM]|LWB|LW)|-L$/.test(position)?0:/^(?:R[BM]|RWB|RW)|-R$/.test(position)?2:1;
+        formationRows.forEach((row,i)=>row.sort((a,b)=>flank(a)-flank(b)).forEach((player,j)=>{player.grid=(i+1)+':'+(j+1);}));
       }
       return [{team,formation:group.formation ?? '',coach:group.coach?.displayName ?? '',starters,substitutes:players.filter(p=>!p.starter)}];
     })

@@ -12,12 +12,14 @@ npm start
 
 Abra [http://127.0.0.1:3600/](http://127.0.0.1:3600/). A aplicação escuta na interface local. Use `PORT` para selecionar outra porta.
 
+No PowerShell, use `npm.cmd start` se a política de execução bloquear `npm.ps1`. O projeto usa os módulos nativos do Node.js.
+
 ## O que é possível acompanhar
 
-- A tela inicial reúne jogos do dia, partidas ao vivo, próximos jogos e resultados recentes. O histórico permite escolher uma data e consultar os resultados dos sete dias até ela.
-- O calendário futuro tem atalhos para amanhã, sete dias e 30 dias. Filtre por campeonato, equipe e status.
-- Na página de um campeonato, selecione a temporada, abra a aba Jogos para percorrer o calendário completo e filtre por rodada ou fase. As abas Classificação e Estatísticas exibem tabelas calculadas a partir da agenda disponível.
-- Clique em um jogo para abrir sua página em `/partidas/<id>?date=<data>`. Use Resumo, Linha do tempo, Estatísticas, Escalações e Confrontos para consultar os dados fornecidos. É possível favoritar, copiar o link e voltar à consulta anterior.
+- Em Jogos, acesse Hoje, Próximos ou Resultados anteriores. O histórico oferece ontem, última semana e 30 dias, com calendário para outros períodos e carregamento em blocos de 50.
+- O calendário futuro oferece hoje, amanhã, esta semana e janelas de sete e 30 dias. Filtre por campeonato, equipe e status.
+- Em `/campeonatos/<id>`, o Placar360 carrega a temporada selecionada. A Visão geral reúne resultados recentes, partidas ao vivo e próximos jogos. A aba Jogos reúne a agenda por rodada ou fase, com placar agregado nas eliminatórias de ida e volta quando os dois placares são conhecidos.
+- Clique em um jogo para abrir sua página em `/partidas/<id>?date=<data>`. Resumo, Linha do tempo, Estatísticas, Escalações, Confrontos e Desempenho recente apresentam a cobertura disponível. É possível favoritar, copiar o link e voltar à consulta anterior.
 - Abra um perfil de time pelo nome da equipe. Consulte sua agenda na competição selecionada, próximas partidas e os resultados usados para mostrar a forma recente.
 - Pesquise equipes, campeonatos e partidas na janela carregada. Salve links de partidas, times e campeonatos em Favoritos. Os links e as preferências de tema e densidade ficam no navegador. O cabeçalho permite ativar som de gol.
 
@@ -60,7 +62,7 @@ Preencha a chave para ativar a integração. O servidor usa a mesma cota para pl
 
 ## Arquitetura e atualizações
 
-O servidor compartilha os dados por dia entre conexões e prioriza as consultas de partidas em andamento. A OpenLigaDB recebe consultas da rodada ativa em intervalos de pelo menos 30 segundos e a temporada é armazenada em disco. Com a API-Football, o servidor alterna consultas por data e por identificadores de partidas próximas do início ou em andamento, quando o volume cabe em uma consulta.
+O servidor compartilha os dados por dia entre conexões e prioriza as consultas de partidas em andamento. A OpenLigaDB recebe consultas da rodada ativa em intervalos de pelo menos 30 segundos por temporada. A agenda da temporada atual fica em disco. O calendário da ESPN também é armazenado localmente depois da primeira consulta bem-sucedida e pode ser exibido durante falhas temporárias. Com a API-Football, o servidor alterna consultas por data e por identificadores de partidas próximas do início ou em andamento, quando o volume cabe em uma consulta.
 
 O navegador recebe um estado inicial por Server-Sent Events e aplica inclusões, alterações e remoções de partidas sem recarregar a página. Uma reconexão recebe outro estado completo. Se a fonte falhar, o último estado disponível pode continuar visível enquanto o servidor adia as próximas tentativas. A agenda combina os resultados da fonte com o estado mais recente dos placares abertos. As temporadas são carregadas sob demanda e as consultas idênticas podem compartilhar o resultado. Detalhes de partidas encerradas na API-Football ficam em memória por até um dia, sujeitos ao limite do cache.
 
@@ -92,7 +94,8 @@ Use `CHECK_NOTIFICATIONS=1` para testar os alertas por partida no Chrome. Esse r
 
 ## Limitações
 
-- A cobertura padrão depende da edição comunitária. Jogos sem atualização de placar e sem uma fase informada podem continuar aparecendo como agendados.
+- A cobertura da OpenLigaDB depende da edição comunitária. Jogos sem atualização de placar podem continuar aparecendo como agendados. O resumo da ESPN pode incluir árbitro, finalizações, posse, acontecimentos e escalações. A disponibilidade varia por partida.
 - A API-Football exige uma chave para confirmar cobertura, temporadas acessíveis e eventos de cada competição. A integração seleciona uma fonte por instância e usa o último estado disponível em caso de falha.
 - A classificação calculada pode divergir da oficial devido a regras de desempate, sanções e cobertura parcial. A artilharia inclui os autores que constam da agenda. O perfil de clube usa a temporada e a competição selecionadas. Elenco completo depende de integração adicional.
 - A busca consulta partidas e times da janela carregada. Nas competições eliminatórias, os filtros seguem os agrupamentos publicados pelo fornecedor. A disponibilidade de jogos de ida e volta depende da estrutura do calendário da fonte.
+- O histórico de confrontos e o desempenho recente usam a temporada da competição da partida. O perfil do clube apresenta os dados disponíveis nessa temporada.

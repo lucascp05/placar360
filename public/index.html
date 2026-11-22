@@ -34,6 +34,7 @@
 <div class="date-panel"><button id="prev" class="icon-button" aria-label="Dia anterior"><span data-icon="left"></span></button><div id="days" class="days"></div><button id="next" class="icon-button" aria-label="Próximo dia"><span data-icon="right"></span></button><label class="calendar" title="Escolher data"><span data-icon="calendar"></span><input id="date" type="date" aria-label="Escolher data"></label></div>
 <nav id="games-navigation" class="tabs" aria-label="Jogos" hidden><a href="/jogos" data-view="today">Hoje</a><a href="/jogos/proximos" data-view="upcoming">Próximos</a><a href="/jogos/resultados" data-view="results">Resultados anteriores</a></nav>
 <div id="range" class="tabs calendar-range" aria-label="Período do calendário" hidden><button data-range="1" data-offset="0" data-window="upcoming">Hoje</button><button data-range="1" data-offset="1" data-window="upcoming">Amanhã</button><button id="current-week" data-window="upcoming">Esta semana</button><button data-range="7" data-offset="0" data-window="upcoming">7 dias</button><button data-range="30" data-offset="0" data-window="upcoming">30 dias</button><button data-range="1" data-offset="-1" data-window="results">Ontem</button><button data-range="7" data-offset="-1" data-window="results">Última semana</button><button data-range="30" data-offset="-1" data-window="results">30 dias</button><button data-calendar-step="-1">Período anterior</button><button data-calendar-step="1">Próximo período</button></div>
+<section id="competition-panel" hidden></section>
 <div id="round-navigation" class="tabs round-navigation" aria-label="Rodadas e fases" hidden></div>
 <div class="filters">
 <div class="tabs" aria-label="Filtro de partidas"><button data-mode="all" class="selected">Todas</button><button data-mode="live"><i></i> Ao vivo</button><button data-mode="favorites"><span data-icon="star"></span> Favoritos</button></div>
@@ -48,7 +49,6 @@
 </div>
 </div>
 <p id="calendar-note" class="calendar-note" role="status" hidden></p>
-<section id="competition-panel" hidden></section>
 <div id="explore-content" hidden></div>
 <div id="results-meta" class="results-meta"></div>
 <div id="matches" aria-live="polite"></div>

@@ -65,22 +65,26 @@ async function checkSouthAmericanCompetitions() {
   for (const [id,name] of leagues) {
     const catalog = base+'/?view=competitions';
     await navigate(catalog);
-    const link = 'document.querySelector(\'#explore-content a[href*="competition='+id+'&"]\')';
+    const link = 'document.querySelector(\'#explore-content a[href^="/campeonatos/'+id+'?"]\')';
     await until(link);
     assert.deepEqual(await evaluate("[...document.querySelectorAll('#explore-content h2')].slice(0,2).map(h=>h.textContent)"),['Brasil','América do Sul']);
     assert.equal(await evaluate(link+'.querySelector("strong").textContent'),name);
-    const sidebarLink = 'document.querySelector(\'#leagues a[href*="competition='+id+'&"]\')';
+    const sidebarLink = 'document.querySelector(\'#leagues a[href^="/campeonatos/'+id+'?"]\')';
     assert.equal(await evaluate(sidebarLink+'.textContent.trim()'),name);
     await evaluate(link+'.click()');
-    await until("location.search.includes('competition="+id+"') && document.querySelector('#round-filter option:nth-child(2)')",120);
+    await until("location.pathname==='/campeonatos/"+id+"' && document.querySelector('article[data-match^=espn-]')",120);
+    assert(await evaluate("document.querySelector('.date-panel').hidden && !location.search.includes('date=')"));
     assert.equal(await evaluate("document.querySelector('#heading').textContent"),name);
     await evaluate("document.querySelector('[data-competition-tab=games]').click()");
     const selectStatus = value=>evaluate("{const select=document.querySelector('#status-filter');select.value="+JSON.stringify(value)+";select.dispatchEvent(new Event('change'));}");
     await selectStatus('final');
     assert(await evaluate("document.querySelector('article[data-match^=espn-]')"));
     await selectStatus('scheduled');
-    assert(await evaluate("document.querySelector('article[data-match^=espn-]')"));
+    const {matches} = await (await fetch(base+'/api/calendar?league='+id+'&season='+season)).json();
+    const future=matches.find(m=>m.status==='scheduled' && Date.parse(m.kickoff)>Date.now());
+    assert.equal(Boolean(await evaluate("document.querySelector('article[data-match^=espn-]')")),matches.some(m=>m.status==='scheduled'));
     await selectStatus('');
+    if (id===71) await capture('brasileirao-temporada');
     await evaluate("{const phase=document.querySelector('#round-filter');phase.selectedIndex=1;phase.dispatchEvent(new Event('change'));}");
     assert(await evaluate("document.querySelector('article[data-match^=espn-]')"));
     await evaluate("document.querySelector('[data-competition-tab=table]').click()");
@@ -92,14 +96,40 @@ async function checkSouthAmericanCompetitions() {
         await evaluate("document.querySelector('#competition-panel [role=status]')?.textContent"));
       assert.equal(await evaluate("document.querySelectorAll('#competition-panel caption').length"),id===13?8:1);
     }
-    const response = await fetch(base+'/api/calendar?league='+id+'&season='+season);
-    const {matches} = await response.json();
     assert(matches.every(m=>m.league.id===id && m.league.season===season));
     const historical = matches.find(m=>m.status==='final' && m.events.some(e=>e.kind==='Gol'));
     assert(historical);
-    assert(matches.some(m=>m.status==='scheduled'));
     const detail = await fetch(base+'/api/match?id='+historical.id+'&date='+historical.date);
     assert.equal((await detail.json()).match.id,historical.id);
+    if (id===71) {
+      await navigate(base+'/partidas/'+historical.id+'?date='+historical.date+'&league='+id);
+      await until("document.querySelector('#match-page .event')");
+      await evaluate("document.querySelector('[data-match-tab=numbers]').click()");
+      await until("document.querySelector('.match-statistics meter')");
+      await capture('brasileirao-partida-estatisticas');
+      await evaluate("document.querySelector('[data-match-tab=lineups]').click()");
+      await until("document.querySelector('.pitch')");
+      for (const width of [390,320]) {
+        await send('Emulation.setDeviceMetricsOverride',{width,height:844,deviceScaleFactor:1,mobile:true});
+        assert(await evaluate('document.documentElement.scrollWidth <= '+width),JSON.stringify(await evaluate(
+          "[innerWidth,document.documentElement.scrollWidth,[...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>innerWidth && !e.closest('#match-page .tabs')).slice(0,12).map(e=>[e.nodeName,e.id,e.getAttribute('class'),Math.round(e.getBoundingClientRect().right)])]")));
+      }
+      await capture('brasileirao-partida-mobile');
+      await send('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+      if (future) {
+        await navigate(base+'/partidas/'+future.id+'?date='+future.date+'&league='+id);
+        await until("document.querySelector('.match-hero') && document.querySelector('#match-page').textContent.includes('Agendado')");
+        await capture('brasileirao-partida-futura');
+      }
+      const live=matches.find(m=>m.status==='live');
+      if (live) {
+        await navigate(base+'/partidas/'+live.id+'?date='+live.date+'&league='+id);
+        await until("document.querySelector('.match-hero') && document.querySelector('#match-page').textContent.includes('Ao vivo')");
+        console.log('Partida ao vivo verificada:',live.id);
+      }
+      await navigate(base+'/jogos/resultados?date='+historical.date+'&range=30');
+      await until("document.querySelector('#date').value==="+JSON.stringify(historical.date)+" && document.querySelector('article.match')");
+    }
     console.log(name,matches.length+' partidas publicadas');
   }
   await send('Network.setBlockedURLs',{urls:[]});
@@ -201,8 +231,8 @@ async function checkCorePlatform() {
   assert.equal(detailResponse.status,200);
   const detail = (await detailResponse.json()).match;
   assert(detail.events.some(event=>event.kind==='Gol'));
-  await evaluate("document.querySelector('.league-heading a[href*=\"competition=78&\"]').click()");
-  await until("location.search.includes('competition=78') && document.querySelector('#round-filter option:nth-child(2)')");
+  await evaluate("document.querySelector('.league-heading a[href^=\"/campeonatos/78?\"]').click()");
+  await until("location.pathname==='/campeonatos/78' && document.querySelector('#round-filter option:nth-child(2)')");
   assert.equal(await evaluate("document.querySelector('#heading').textContent"),'Bundesliga');
   await evaluate("const round=document.querySelector('#round-filter');round.selectedIndex=1;round.dispatchEvent(new Event('change'));");
   assert(await evaluate("document.querySelector('article.match')"));
@@ -226,10 +256,10 @@ async function checkCorePlatform() {
   await evaluate("document.querySelector('[data-match-tab=numbers]').click()");
   assert(await evaluate("document.querySelector('#match-page').textContent.includes('Estatísticas indisponíveis')"));
   await evaluate("document.querySelector('.match-hero a').click()");
-  await until("location.search.includes('team=') && !document.querySelector('#profile-crest').hidden");
+  await until("location.pathname.startsWith('/times/') && !document.querySelector('#profile-crest').hidden");
   await evaluate("document.querySelector('[data-save-profile]').click()");
   await navigate(base+'/?view=favorites');
-  await until("document.querySelector('.saved-row a[href*=\"team=\"]')");
+  await until("document.querySelector('.saved-row a[href^=\"/times/\"]')");
   await navigate(base+'/?view=upcoming&date='+selected);
   const monthButton = 'document.querySelector(\'[data-range="30"]\')';
   await until(monthButton+" && !document.querySelector('#range').hidden");

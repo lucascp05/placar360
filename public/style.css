@@ -139,6 +139,8 @@
 .feed-top { cursor:pointer; }
 .feed:not([open]) .feed-top { border-bottom:0; }
 #more-results { margin:1rem 0; }
+.filters .search { grid-column:1/-1; }
+@media(min-width:891px) { .tools .desktop-redundant { display:none; } }
 #league-select.calendar-league { display:block; background:var(--panel); border:1px solid var(--line); padding:.5rem; }
 .match-section { background:var(--panel); border:1px solid var(--line); border-radius:.65rem; padding:clamp(.7rem,2vw,1.25rem); margin:.75rem 0; }
 .match-section h2 { font-size:1.1rem; margin-bottom:.75rem; }

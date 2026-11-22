@@ -311,6 +311,8 @@ function render() {
   $('league-select').classList.toggle('calendar-league',['upcoming','results'].includes(view));
   $('games-navigation').hidden = !['today','upcoming','results'].includes(view);
   document.querySelector('.filters [aria-label="Filtro de partidas"]').hidden = Boolean(competition) || view!=='home';
+  document.querySelector('.tools [data-agenda]').hidden = Boolean(competition);
+  document.querySelector('.tools [data-settings]').classList.toggle('desktop-redundant',Boolean(competition));
   $('matches').hidden = $('results-meta').hidden = !showFixtures;
   const live = [...matches.values()].filter(m=>m.status==='live').length;
   const team = teamId && list.flatMap(m=>[m.home,m.away]).find(t=>String(t.id)===teamId);
@@ -743,9 +745,6 @@ if (Object.hasOwn(viewTitles,requestedView)) view=requestedView;
 if (/^(?:[1-7]|30)$/.test(params.get('range') ?? '')) range=Number(params.get('range'));
 agenda = ['home','upcoming','results','teams','competitions'].includes(view);
 if (['live','favorites'].includes(view)) mode=view;
-document.querySelectorAll('[data-view]').forEach(link=>{
-  if (link.dataset.view===view && !params.has('competition') && !params.has('match')) link.setAttribute('aria-current','page');
-});
 const routeMatch = /^\/partidas\/((?:api|open|espn)-\d+)$/.exec(location.pathname)?.[1] ?? params.get('match');
 if (/^(?:api|open|espn)-\d+$/.test(routeMatch ?? '')) {
   matchPageId=routeMatch;
@@ -767,6 +766,13 @@ if (/^\d+$/.test(competitionId ?? '')) {
   round=params.get('round') ?? '';
   competitionTab=['overview','games','table','stats'].includes(tab)?tab:teamId||round?'games':'overview';
 }
+document.querySelectorAll('[data-view]').forEach(link=>{
+  if (matchPageId) return;
+  const target=teamId?'teams':competition?'competitions':view;
+  const active=link.closest('#games-navigation') ? link.dataset.view===target
+    : link.dataset.view===(['upcoming','results'].includes(target)?'today':target);
+  if (active) link.setAttribute('aria-current','page');
+});
 const restored = !matchPageId && history.state?.returnFromMatch ? history.state : null;
 const initialDate = restored?.date ?? params.get('date');
 openDate(initialDate && /^20\d\d-\d\d-\d\d$/.test(initialDate) && Number.isFinite(Date.parse(initialDate)) && shift(initialDate,0)===initialDate ? initialDate : view==='upcoming' ? shift(today,1) : view==='results' ? shift(today,-1) : today);
