@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: placar360
+    runtime: node
+    plan: free
+    region: virginia
+    buildCommand: npm test
+    startCommand: npm start
+    healthCheckPath: /
+    autoDeployTrigger: off
+    envVars:
+      - key: HOST
+        value: 0.0.0.0

@@ -17,6 +17,7 @@ const assets = new Map(await Promise.all([
 ].map(async ([route,file,type])=>[route,{body:await readFile(new URL('./public/'+file,import.meta.url)),type}])));
 const frontendVersion = createHash('sha256').update(assets.get('/app.js').body).digest('hex').slice(0,12);
 let busy = false;
+let streamCount = 0;
 
 function getDay(date) {
   let entry = days.get(date);
@@ -48,7 +49,8 @@ async function refresh(entry) {
   busy = true;
   const started = performance.now();
   try {
-    const all = await source.collect(entry.date,entry.matches);
+    let partialError;
+    const all = await source.collect(entry.date,entry.matches,error=>{partialError=error;});
     const received = performance.now();
     if (!key && all.length && entry.date===dateOf(Date.now())) seed = all;
     const matches = all.filter(m=>m.date===entry.date).sort((a,b)=>Date.parse(a.kickoff)-Date.parse(b.kickoff));
@@ -58,13 +60,15 @@ async function refresh(entry) {
     const remove = entry.matches.filter(m=>!idSet.has(m.id)).map(m=>m.id);
     const first = !entry.updated && !entry.matches.length;
     entry.matches = matches;
-    entry.updated = Date.now();
+    if (!partialError) entry.updated = Date.now();
     entry.processing = Math.round((performance.now()-received)*100)/100;
     entry.upstream = Math.round(received-started);
-    entry.error = null;
+    if (partialError && !entry.error) console.warn('Cobertura parcial dos placares',entry.date);
+    entry.error = partialError ?? null;
     entry.failures = 0;
     if (upsert.length || remove.length) publish(entry,'patch',{upsert,remove,first,publishedAt:Date.now()});
   } catch (error) {
+    if (!entry.failures) console.warn('Falha ao atualizar placares',entry.date,error.name);
     entry.error = error.name==='TimeoutError' || error.message==='fetch failed' ? 'Fonte temporariamente indisponível' : error.message;
     entry.failures++;
   } finally {
@@ -94,8 +98,10 @@ setInterval(()=>{
   }
 },15000).unref();
 
+const host = process.env.HOST || '127.0.0.1';
 createServer(async (req,res)=>{
-  const url = new URL(req.url,'http://localhost');
+  const url = URL.parse(req.url,'http://localhost');
+  if (!url) { res.writeHead(400).end(); return; }
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Referrer-Policy','no-referrer');
   res.setHeader('X-Placar360-Frontend',frontendVersion);
@@ -202,6 +208,7 @@ createServer(async (req,res)=>{
     }
     return;
   }
+  if (url.pathname==='/api/stream' && streamCount>=200) { res.writeHead(503).end(); return; }
   const entry = getDay(date);
   if (!entry) { res.writeHead(503).end(); return; }
   const snapshot = {matches:entry.matches,date,...status(entry),cached:!entry.updated && entry.matches.length ? seededAt : null};
@@ -211,7 +218,8 @@ createServer(async (req,res)=>{
   res.write('retry: 2500\n\n');
   send(res,'snapshot',snapshot);
   entry.clients.add(res);
-  res.on('close',()=>entry.clients.delete(res));
-}).listen(Number(process.env.PORT)||3600,'127.0.0.1',function(){console.log('Placar360 em http://127.0.0.1:'+this.address().port);});
+  streamCount++;
+  res.once('close',()=>{ entry.clients.delete(res); streamCount--; });
+}).listen(Number(process.env.PORT)||3600,host,function(){console.log('Placar360 em http://'+host+':'+this.address().port);});
 
 

@@ -261,7 +261,7 @@ export function createSource(key, limit) {
       if (calendars.size>12) calendars.delete(calendars.keys().next().value);
       return entry.result;
     },
-    async collect(day, known) {
+    async collect(day, known, onPartial) {
       if (key) {
         const now = Date.now();
         const active = known.filter(m=>m.status==='live');
@@ -273,6 +273,7 @@ export function createSource(key, limit) {
         const query = canFocus ? 'ids='+focused.map(m=>m.id.slice(4)).join('-') : dateQuery;
         const old = new Map(known.map(m=>[m.id,m]));
         const fetched = await apiFixtures(query);
+        if (!fetched.length && known.length) throw Error('A fonte retornou uma agenda vazia após publicar partidas');
         const updated = fetched.filter(m=>m.date===day).map(m=>{
           const previous = old.get(m.id);
           if (!previous) return m;
@@ -290,8 +291,9 @@ export function createSource(key, limit) {
       }
       const season = openSeason(day);
       const activeFeeds = openFeeds.filter((_,index)=>!openLeagues[index].season || openLeagues[index].season===season);
-      const results = await Promise.allSettled([...activeFeeds.map(feed=>feed.collect(day,known)),espn.collect(day,known)]);
+      const results = await Promise.allSettled([...activeFeeds.map(feed=>feed.collect(day,known)),espn.collect(day,known,onPartial)]);
       if (results.every(result=>result.status==='rejected')) throw results[0].reason;
+      if (results.some(result=>result.status==='rejected')) onPartial?.('Cobertura parcial dos placares');
       return results.flatMap((result,index)=>result.status==='fulfilled' ? result.value
         : index===activeFeeds.length ? known.filter(m=>m.id.startsWith('espn-')) : activeFeeds[index].seasons.get(season)?.matches ?? []);
     }

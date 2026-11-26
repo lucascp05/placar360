@@ -10,9 +10,17 @@ Requer Node.js 24 e acesso HTTPS à fonte esportiva. O servidor usa módulos nat
 npm start
 ```
 
-Abra [http://127.0.0.1:3600/](http://127.0.0.1:3600/). A aplicação escuta na interface local. Use `PORT` para selecionar outra porta.
+Abra [http://127.0.0.1:3600/](http://127.0.0.1:3600/). Por padrão, a aplicação escuta na interface local. Use `HOST` para mudar a interface e `PORT` para selecionar outra porta.
 
 No PowerShell, use `npm.cmd start` se a política de execução bloquear `npm.ps1`. O projeto usa os módulos nativos do Node.js.
+
+## Hospedagem no Render
+
+O `render.yaml` define um Web Service Free em Virginia, com Node.js 24, `npm test` no build, `npm start` e deploy automático desativado. Crie um Blueprint em um workspace Hobby sem forma de pagamento, autorize apenas o repositório do Placar360 e selecione o branch preparado para deploy. Confira que o plano é Free e que o Blueprint cria um serviço novo para o Placar360 antes de aplicar. O Render fornece `PORT` e o subdomínio `onrender.com` com HTTPS. A variável opcional `API_FOOTBALL_KEY` deve ser configurada em **Environment** no serviço. A configuração inicial usa OpenLigaDB e ESPN sem chave. [Blueprints](https://render.com/docs/infrastructure-as-code) · [Web Services](https://render.com/docs/web-services)
+
+Após 15 minutos sem tráfego de entrada, o primeiro acesso pode aguardar cerca de um minuto. Reinícios, suspensão e deploys podem apagar os caches JSON, que são reconstruídos pelas fontes. O workspace Hobby inclui 750 horas de instância Free, 5 GB de tráfego de saída e 500 minutos de build por mês. Ao esgotar horas ou tráfego sem método de pagamento, o serviço pode ficar suspenso até o mês seguinte. Ao esgotar os minutos de build, novos builds ficam bloqueados. O proxy admite respostas HTTP de até 100 minutos e o EventSource se reconecta quando a resposta é encerrada. [Limites Free](https://render.com/docs/free) · [Tráfego](https://render.com/docs/outbound-bandwidth) · [Build](https://render.com/docs/build-pipeline) · [SSE](https://render.com/articles/sse-vs-websockets-llm-streaming)
+
+No painel do serviço, consulte **Logs** para mensagens do servidor e **Deploys** para logs de build. Em **Deploys**, selecione **Rollback** em um dos dois deploys anteriores elegíveis e confirme a versão. [Logs](https://render.com/docs/logging) · [Rollback](https://render.com/docs/rollbacks)
 
 ## O que é possível acompanhar
 

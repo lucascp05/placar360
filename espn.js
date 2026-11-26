@@ -215,15 +215,18 @@ export function createEspn(request,dateOf,cacheDirectory) {
         error:results.some(r=>r.status==='rejected'||r.value.error) ? 'Cobertura parcial da ESPN nesta consulta' : undefined
       };
     },
-    async collect(day,known) {
+    async collect(day,known,onPartial) {
       const today = day===dateOf(Date.now());
       const results = await Promise.allSettled(southAmericanLeagues.map(l=>today
         ? fixtures(l,day.replaceAll('-',''),30000) : season(l,day.slice(0,4))));
       if (results.every(r=>r.status==='rejected'||r.value.error)) throw Error('Consulta ESPN temporariamente indisponível');
+      if (results.some(r=>r.status==='rejected'||r.value.error)) onPartial?.('Cobertura parcial dos placares');
       return results.flatMap((r,i)=>{
         const league = southAmericanLeagues[i];
-        if (r.status==='fulfilled') return r.value.value.filter(m=>m.date===day);
-        return known.filter(m=>m.league.id===league.id && m.id.startsWith('espn-'));
+        const matches = r.status==='fulfilled' ? r.value.value.filter(m=>m.date===day) : [];
+        if (r.status==='fulfilled' && !r.value.error) return matches;
+        const previous = known.filter(m=>m.league.id===league.id && m.id.startsWith('espn-'));
+        return [...new Map([...matches,...previous].map(m=>[m.id,m])).values()];
       });
     },
     async standings(id,year) {
